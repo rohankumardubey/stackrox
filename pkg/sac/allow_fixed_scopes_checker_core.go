@@ -51,7 +51,7 @@ func (c allowFixedScopesCheckerCore) SubScopeChecker(key ScopeKey) ScopeCheckerC
 	return denyAllScopeCheckerCore
 }
 
-func (c allowFixedScopesCheckerCore) EffectiveAccessScope(resource permissions.ResourceWithAccess) (*effectiveaccessscope.ScopeTree, error) {
+func (c allowFixedScopesCheckerCore) EffectiveAccessScope(_ permissions.ResourceWithAccess) (*effectiveaccessscope.ScopeTree, error) {
 	// TODO(ROX-9537): Implement it
 	panic("Implement me: ROX-9537")
 }
