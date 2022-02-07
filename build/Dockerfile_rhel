@@ -8,6 +8,9 @@ RUN yum update -y && yum install -y epel-release dnf-plugins-core && yum config-
 RUN yum -y groupinstall "Development Tools"
 RUN yum install -y gflags snappy-devel zlib-devel bzip2-devel lz4-devel cmake which
 
+# Make sure that private and source-only packages on github.com can be downloaded successfully as go modules.
+RUN echo '[url "git@github.com:"]' >> ~/.gitconfig && echo -e '\tinsteadOf = https://github.com/' >> ~/.gitconfig
+
 RUN  curl -L https://github.com/facebook/zstd/archive/v${ZSTD_VERSION}.tar.gz | tar xzvf - -C /tmp && \
     mv /tmp/zstd-${ZSTD_VERSION} /tmp/zstd && \
     cd /tmp/zstd && make && make install
