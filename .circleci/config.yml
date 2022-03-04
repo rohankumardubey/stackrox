@@ -3346,6 +3346,11 @@ jobs:
             oc get nodes
 
       - run:
+          name: Populate OpenShift Internal Image Registry
+          command: |
+            
+
+      - run:
           name: Deployment Compliance Operator
           command: |
             export KUBECONFIG=$PWD/openshift-4/data/auth/kubeconfig
