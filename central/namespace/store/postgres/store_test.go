@@ -12,6 +12,7 @@ import (
 	storage "github.com/stackrox/rox/generated/storage"
 	"github.com/stackrox/rox/pkg/features"
 	"github.com/stackrox/rox/pkg/postgres/pgtest"
+	"github.com/stackrox/rox/pkg/sac"
 	"github.com/stackrox/rox/pkg/testutils"
 	"github.com/stackrox/rox/pkg/testutils/envisolator"
 	"github.com/stretchr/testify/suite"
@@ -41,7 +42,7 @@ func (s *NamespacesStoreSuite) TearDownTest() {
 }
 
 func (s *NamespacesStoreSuite) TestStore() {
-	ctx := context.Background()
+	ctx := sac.WithAllAccess(context.Background())
 
 	source := pgtest.GetConnectionString(s.T())
 	config, err := pgxpool.ParseConfig(source)
@@ -61,6 +62,8 @@ func (s *NamespacesStoreSuite) TestStore() {
 	s.False(exists)
 	s.Nil(foundNamespaceMetadata)
 
+	withNoAccess := sac.WithNoAccess(ctx)
+
 	s.NoError(store.Upsert(ctx, namespaceMetadata))
 	foundNamespaceMetadata, exists, err = store.Get(ctx, namespaceMetadata.GetId())
 	s.NoError(err)
@@ -71,10 +74,15 @@ func (s *NamespacesStoreSuite) TestStore() {
 	s.NoError(err)
 	s.Equal(namespaceMetadataCount, 1)
 
+	namespaceMetadataCount, err = store.Count(withNoAccess)
+	s.NoError(err)
+	s.Zero(namespaceMetadataCount)
+
 	namespaceMetadataExists, err := store.Exists(ctx, namespaceMetadata.GetId())
 	s.NoError(err)
 	s.True(namespaceMetadataExists)
 	s.NoError(store.Upsert(ctx, namespaceMetadata))
+	s.ErrorIs(store.Upsert(withNoAccess, namespaceMetadata), sac.ErrResourceAccessDenied)
 
 	foundNamespaceMetadata, exists, err = store.Get(ctx, namespaceMetadata.GetId())
 	s.NoError(err)
@@ -86,6 +94,8 @@ func (s *NamespacesStoreSuite) TestStore() {
 	s.NoError(err)
 	s.False(exists)
 	s.Nil(foundNamespaceMetadata)
+
+	s.ErrorIs(store.Delete(withNoAccess, namespaceMetadata.GetId()), sac.ErrResourceAccessDenied)
 
 	var namespaceMetadatas []*storage.NamespaceMetadata
 	for i := 0; i < 200; i++ {

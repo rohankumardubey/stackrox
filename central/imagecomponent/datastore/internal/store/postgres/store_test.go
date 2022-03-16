@@ -12,6 +12,7 @@ import (
 	storage "github.com/stackrox/rox/generated/storage"
 	"github.com/stackrox/rox/pkg/features"
 	"github.com/stackrox/rox/pkg/postgres/pgtest"
+	"github.com/stackrox/rox/pkg/sac"
 	"github.com/stackrox/rox/pkg/testutils"
 	"github.com/stackrox/rox/pkg/testutils/envisolator"
 	"github.com/stretchr/testify/suite"
@@ -41,7 +42,7 @@ func (s *ImageComponentsStoreSuite) TearDownTest() {
 }
 
 func (s *ImageComponentsStoreSuite) TestStore() {
-	ctx := context.Background()
+	ctx := sac.WithAllAccess(context.Background())
 
 	source := pgtest.GetConnectionString(s.T())
 	config, err := pgxpool.ParseConfig(source)
@@ -61,6 +62,8 @@ func (s *ImageComponentsStoreSuite) TestStore() {
 	s.False(exists)
 	s.Nil(foundImageComponent)
 
+	withNoAccess := sac.WithNoAccess(ctx)
+
 	s.NoError(store.Upsert(ctx, imageComponent))
 	foundImageComponent, exists, err = store.Get(ctx, imageComponent.GetId(), imageComponent.GetName(), imageComponent.GetVersion(), imageComponent.GetOperatingSystem())
 	s.NoError(err)
@@ -71,10 +74,15 @@ func (s *ImageComponentsStoreSuite) TestStore() {
 	s.NoError(err)
 	s.Equal(imageComponentCount, 1)
 
+	imageComponentCount, err = store.Count(withNoAccess)
+	s.NoError(err)
+	s.Zero(imageComponentCount)
+
 	imageComponentExists, err := store.Exists(ctx, imageComponent.GetId(), imageComponent.GetName(), imageComponent.GetVersion(), imageComponent.GetOperatingSystem())
 	s.NoError(err)
 	s.True(imageComponentExists)
 	s.NoError(store.Upsert(ctx, imageComponent))
+	s.ErrorIs(store.Upsert(withNoAccess, imageComponent), sac.ErrResourceAccessDenied)
 
 	foundImageComponent, exists, err = store.Get(ctx, imageComponent.GetId(), imageComponent.GetName(), imageComponent.GetVersion(), imageComponent.GetOperatingSystem())
 	s.NoError(err)
@@ -86,6 +94,8 @@ func (s *ImageComponentsStoreSuite) TestStore() {
 	s.NoError(err)
 	s.False(exists)
 	s.Nil(foundImageComponent)
+
+	s.ErrorIs(store.Delete(withNoAccess, imageComponent.GetId(), imageComponent.GetName(), imageComponent.GetVersion(), imageComponent.GetOperatingSystem()), sac.ErrResourceAccessDenied)
 
 	var imageComponents []*storage.ImageComponent
 	for i := 0; i < 200; i++ {

@@ -12,6 +12,7 @@ import (
 	"github.com/stackrox/rox/generated/storage"
 	"github.com/stackrox/rox/pkg/features"
 	"github.com/stackrox/rox/pkg/postgres/pgtest"
+	"github.com/stackrox/rox/pkg/sac"
 	"github.com/stackrox/rox/pkg/testutils"
 	"github.com/stackrox/rox/pkg/testutils/envisolator"
 	"github.com/stretchr/testify/suite"
@@ -41,7 +42,7 @@ func (s *NetworkentityStoreSuite) TearDownTest() {
 }
 
 func (s *NetworkentityStoreSuite) TestStore() {
-	ctx := context.Background()
+	ctx := sac.WithAllAccess(context.Background())
 
 	source := pgtest.GetConnectionString(s.T())
 	config, err := pgxpool.ParseConfig(source)
@@ -61,6 +62,8 @@ func (s *NetworkentityStoreSuite) TestStore() {
 	s.False(exists)
 	s.Nil(foundNetworkEntity)
 
+	withNoAccess := sac.WithNoAccess(ctx)
+
 	s.NoError(store.Upsert(ctx, networkEntity))
 	foundNetworkEntity, exists, err = store.Get(ctx, networkEntity.GetInfo().GetId())
 	s.NoError(err)
@@ -71,10 +74,15 @@ func (s *NetworkentityStoreSuite) TestStore() {
 	s.NoError(err)
 	s.Equal(networkEntityCount, 1)
 
+	networkEntityCount, err = store.Count(withNoAccess)
+	s.NoError(err)
+	s.Zero(networkEntityCount)
+
 	networkEntityExists, err := store.Exists(ctx, networkEntity.GetInfo().GetId())
 	s.NoError(err)
 	s.True(networkEntityExists)
 	s.NoError(store.Upsert(ctx, networkEntity))
+	s.ErrorIs(store.Upsert(withNoAccess, networkEntity), sac.ErrResourceAccessDenied)
 
 	foundNetworkEntity, exists, err = store.Get(ctx, networkEntity.GetInfo().GetId())
 	s.NoError(err)
@@ -86,6 +94,8 @@ func (s *NetworkentityStoreSuite) TestStore() {
 	s.NoError(err)
 	s.False(exists)
 	s.Nil(foundNetworkEntity)
+
+	s.ErrorIs(store.Delete(withNoAccess, networkEntity.GetInfo().GetId()), sac.ErrResourceAccessDenied)
 
 	var networkEntitys []*storage.NetworkEntity
 	for i := 0; i < 200; i++ {

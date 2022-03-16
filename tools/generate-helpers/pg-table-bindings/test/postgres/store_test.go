@@ -12,6 +12,7 @@ import (
 	storage "github.com/stackrox/rox/generated/storage"
 	"github.com/stackrox/rox/pkg/features"
 	"github.com/stackrox/rox/pkg/postgres/pgtest"
+	"github.com/stackrox/rox/pkg/sac"
 	"github.com/stackrox/rox/pkg/testutils"
 	"github.com/stackrox/rox/pkg/testutils/envisolator"
 	"github.com/stretchr/testify/suite"
@@ -41,7 +42,7 @@ func (s *SinglekeyStoreSuite) TearDownTest() {
 }
 
 func (s *SinglekeyStoreSuite) TestStore() {
-	ctx := context.Background()
+	ctx := sac.WithAllAccess(context.Background())
 
 	source := pgtest.GetConnectionString(s.T())
 	config, err := pgxpool.ParseConfig(source)
@@ -61,6 +62,8 @@ func (s *SinglekeyStoreSuite) TestStore() {
 	s.False(exists)
 	s.Nil(foundTestSingleKeyStruct)
 
+	withNoAccess := sac.WithNoAccess(ctx)
+
 	s.NoError(store.Upsert(ctx, testSingleKeyStruct))
 	foundTestSingleKeyStruct, exists, err = store.Get(ctx, testSingleKeyStruct.GetKey())
 	s.NoError(err)
@@ -71,10 +74,15 @@ func (s *SinglekeyStoreSuite) TestStore() {
 	s.NoError(err)
 	s.Equal(testSingleKeyStructCount, 1)
 
+	testSingleKeyStructCount, err = store.Count(withNoAccess)
+	s.NoError(err)
+	s.Zero(testSingleKeyStructCount)
+
 	testSingleKeyStructExists, err := store.Exists(ctx, testSingleKeyStruct.GetKey())
 	s.NoError(err)
 	s.True(testSingleKeyStructExists)
 	s.NoError(store.Upsert(ctx, testSingleKeyStruct))
+	s.ErrorIs(store.Upsert(withNoAccess, testSingleKeyStruct), sac.ErrResourceAccessDenied)
 
 	foundTestSingleKeyStruct, exists, err = store.Get(ctx, testSingleKeyStruct.GetKey())
 	s.NoError(err)
@@ -86,6 +94,8 @@ func (s *SinglekeyStoreSuite) TestStore() {
 	s.NoError(err)
 	s.False(exists)
 	s.Nil(foundTestSingleKeyStruct)
+
+	s.ErrorIs(store.Delete(withNoAccess, testSingleKeyStruct.GetKey()), sac.ErrResourceAccessDenied)
 
 	var testSingleKeyStructs []*storage.TestSingleKeyStruct
 	for i := 0; i < 200; i++ {

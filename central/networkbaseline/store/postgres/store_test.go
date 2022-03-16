@@ -12,6 +12,7 @@ import (
 	"github.com/stackrox/rox/generated/storage"
 	"github.com/stackrox/rox/pkg/features"
 	"github.com/stackrox/rox/pkg/postgres/pgtest"
+	"github.com/stackrox/rox/pkg/sac"
 	"github.com/stackrox/rox/pkg/testutils"
 	"github.com/stackrox/rox/pkg/testutils/envisolator"
 	"github.com/stretchr/testify/suite"
@@ -41,7 +42,7 @@ func (s *NetworkbaselineStoreSuite) TearDownTest() {
 }
 
 func (s *NetworkbaselineStoreSuite) TestStore() {
-	ctx := context.Background()
+	ctx := sac.WithAllAccess(context.Background())
 
 	source := pgtest.GetConnectionString(s.T())
 	config, err := pgxpool.ParseConfig(source)
@@ -61,6 +62,8 @@ func (s *NetworkbaselineStoreSuite) TestStore() {
 	s.False(exists)
 	s.Nil(foundNetworkBaseline)
 
+	withNoAccess := sac.WithNoAccess(ctx)
+
 	s.NoError(store.Upsert(ctx, networkBaseline))
 	foundNetworkBaseline, exists, err = store.Get(ctx, networkBaseline.GetDeploymentId())
 	s.NoError(err)
@@ -71,10 +74,15 @@ func (s *NetworkbaselineStoreSuite) TestStore() {
 	s.NoError(err)
 	s.Equal(networkBaselineCount, 1)
 
+	networkBaselineCount, err = store.Count(withNoAccess)
+	s.NoError(err)
+	s.Zero(networkBaselineCount)
+
 	networkBaselineExists, err := store.Exists(ctx, networkBaseline.GetDeploymentId())
 	s.NoError(err)
 	s.True(networkBaselineExists)
 	s.NoError(store.Upsert(ctx, networkBaseline))
+	s.ErrorIs(store.Upsert(withNoAccess, networkBaseline), sac.ErrResourceAccessDenied)
 
 	foundNetworkBaseline, exists, err = store.Get(ctx, networkBaseline.GetDeploymentId())
 	s.NoError(err)
@@ -86,6 +94,8 @@ func (s *NetworkbaselineStoreSuite) TestStore() {
 	s.NoError(err)
 	s.False(exists)
 	s.Nil(foundNetworkBaseline)
+
+	s.ErrorIs(store.Delete(withNoAccess, networkBaseline.GetDeploymentId()), sac.ErrResourceAccessDenied)
 
 	var networkBaselines []*storage.NetworkBaseline
 	for i := 0; i < 200; i++ {

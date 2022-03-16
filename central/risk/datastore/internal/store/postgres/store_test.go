@@ -12,6 +12,7 @@ import (
 	storage "github.com/stackrox/rox/generated/storage"
 	"github.com/stackrox/rox/pkg/features"
 	"github.com/stackrox/rox/pkg/postgres/pgtest"
+	"github.com/stackrox/rox/pkg/sac"
 	"github.com/stackrox/rox/pkg/testutils"
 	"github.com/stackrox/rox/pkg/testutils/envisolator"
 	"github.com/stretchr/testify/suite"
@@ -41,7 +42,7 @@ func (s *RiskStoreSuite) TearDownTest() {
 }
 
 func (s *RiskStoreSuite) TestStore() {
-	ctx := context.Background()
+	ctx := sac.WithAllAccess(context.Background())
 
 	source := pgtest.GetConnectionString(s.T())
 	config, err := pgxpool.ParseConfig(source)
@@ -61,6 +62,8 @@ func (s *RiskStoreSuite) TestStore() {
 	s.False(exists)
 	s.Nil(foundRisk)
 
+	withNoAccess := sac.WithNoAccess(ctx)
+
 	s.NoError(store.Upsert(ctx, risk))
 	foundRisk, exists, err = store.Get(ctx, risk.GetId())
 	s.NoError(err)
@@ -71,10 +74,15 @@ func (s *RiskStoreSuite) TestStore() {
 	s.NoError(err)
 	s.Equal(riskCount, 1)
 
+	riskCount, err = store.Count(withNoAccess)
+	s.NoError(err)
+	s.Zero(riskCount)
+
 	riskExists, err := store.Exists(ctx, risk.GetId())
 	s.NoError(err)
 	s.True(riskExists)
 	s.NoError(store.Upsert(ctx, risk))
+	s.ErrorIs(store.Upsert(withNoAccess, risk), sac.ErrResourceAccessDenied)
 
 	foundRisk, exists, err = store.Get(ctx, risk.GetId())
 	s.NoError(err)
@@ -86,6 +94,8 @@ func (s *RiskStoreSuite) TestStore() {
 	s.NoError(err)
 	s.False(exists)
 	s.Nil(foundRisk)
+
+	s.ErrorIs(store.Delete(withNoAccess, risk.GetId()), sac.ErrResourceAccessDenied)
 
 	var risks []*storage.Risk
 	for i := 0; i < 200; i++ {

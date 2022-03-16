@@ -12,6 +12,7 @@ import (
 	"github.com/stackrox/rox/generated/storage"
 	"github.com/stackrox/rox/pkg/features"
 	"github.com/stackrox/rox/pkg/postgres/pgtest"
+	"github.com/stackrox/rox/pkg/sac"
 	"github.com/stackrox/rox/pkg/testutils"
 	"github.com/stackrox/rox/pkg/testutils/envisolator"
 	"github.com/stretchr/testify/suite"
@@ -41,7 +42,7 @@ func (s *ClusterHealthStatusStoreSuite) TearDownTest() {
 }
 
 func (s *ClusterHealthStatusStoreSuite) TestStore() {
-	ctx := context.Background()
+	ctx := sac.WithAllAccess(context.Background())
 
 	source := pgtest.GetConnectionString(s.T())
 	config, err := pgxpool.ParseConfig(source)
@@ -61,6 +62,8 @@ func (s *ClusterHealthStatusStoreSuite) TestStore() {
 	s.False(exists)
 	s.Nil(foundClusterHealthStatus)
 
+	withNoAccess := sac.WithNoAccess(ctx)
+
 	s.NoError(store.Upsert(ctx, clusterHealthStatus))
 	foundClusterHealthStatus, exists, err = store.Get(ctx, clusterHealthStatus.GetId())
 	s.NoError(err)
@@ -71,10 +74,15 @@ func (s *ClusterHealthStatusStoreSuite) TestStore() {
 	s.NoError(err)
 	s.Equal(clusterHealthStatusCount, 1)
 
+	clusterHealthStatusCount, err = store.Count(withNoAccess)
+	s.NoError(err)
+	s.Zero(clusterHealthStatusCount)
+
 	clusterHealthStatusExists, err := store.Exists(ctx, clusterHealthStatus.GetId())
 	s.NoError(err)
 	s.True(clusterHealthStatusExists)
 	s.NoError(store.Upsert(ctx, clusterHealthStatus))
+	s.ErrorIs(store.Upsert(withNoAccess, clusterHealthStatus), sac.ErrResourceAccessDenied)
 
 	foundClusterHealthStatus, exists, err = store.Get(ctx, clusterHealthStatus.GetId())
 	s.NoError(err)
@@ -86,6 +94,8 @@ func (s *ClusterHealthStatusStoreSuite) TestStore() {
 	s.NoError(err)
 	s.False(exists)
 	s.Nil(foundClusterHealthStatus)
+
+	s.ErrorIs(store.Delete(withNoAccess, clusterHealthStatus.GetId()), sac.ErrResourceAccessDenied)
 
 	var clusterHealthStatuss []*storage.ClusterHealthStatus
 	for i := 0; i < 200; i++ {

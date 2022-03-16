@@ -12,6 +12,7 @@ import (
 	storage "github.com/stackrox/rox/generated/storage"
 	"github.com/stackrox/rox/pkg/features"
 	"github.com/stackrox/rox/pkg/postgres/pgtest"
+	"github.com/stackrox/rox/pkg/sac"
 	"github.com/stackrox/rox/pkg/testutils"
 	"github.com/stackrox/rox/pkg/testutils/envisolator"
 	"github.com/stretchr/testify/suite"
@@ -41,7 +42,7 @@ func (s *RolebindingsStoreSuite) TearDownTest() {
 }
 
 func (s *RolebindingsStoreSuite) TestStore() {
-	ctx := context.Background()
+	ctx := sac.WithAllAccess(context.Background())
 
 	source := pgtest.GetConnectionString(s.T())
 	config, err := pgxpool.ParseConfig(source)
@@ -61,6 +62,8 @@ func (s *RolebindingsStoreSuite) TestStore() {
 	s.False(exists)
 	s.Nil(foundK8SRoleBinding)
 
+	withNoAccess := sac.WithNoAccess(ctx)
+
 	s.NoError(store.Upsert(ctx, k8SRoleBinding))
 	foundK8SRoleBinding, exists, err = store.Get(ctx, k8SRoleBinding.GetId())
 	s.NoError(err)
@@ -71,10 +74,15 @@ func (s *RolebindingsStoreSuite) TestStore() {
 	s.NoError(err)
 	s.Equal(k8SRoleBindingCount, 1)
 
+	k8SRoleBindingCount, err = store.Count(withNoAccess)
+	s.NoError(err)
+	s.Zero(k8SRoleBindingCount)
+
 	k8SRoleBindingExists, err := store.Exists(ctx, k8SRoleBinding.GetId())
 	s.NoError(err)
 	s.True(k8SRoleBindingExists)
 	s.NoError(store.Upsert(ctx, k8SRoleBinding))
+	s.ErrorIs(store.Upsert(withNoAccess, k8SRoleBinding), sac.ErrResourceAccessDenied)
 
 	foundK8SRoleBinding, exists, err = store.Get(ctx, k8SRoleBinding.GetId())
 	s.NoError(err)
@@ -86,6 +94,8 @@ func (s *RolebindingsStoreSuite) TestStore() {
 	s.NoError(err)
 	s.False(exists)
 	s.Nil(foundK8SRoleBinding)
+
+	s.ErrorIs(store.Delete(withNoAccess, k8SRoleBinding.GetId()), sac.ErrResourceAccessDenied)
 
 	var k8SRoleBindings []*storage.K8SRoleBinding
 	for i := 0; i < 200; i++ {

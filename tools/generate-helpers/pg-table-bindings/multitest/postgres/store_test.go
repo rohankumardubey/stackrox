@@ -12,6 +12,7 @@ import (
 	"github.com/stackrox/rox/generated/storage"
 	"github.com/stackrox/rox/pkg/features"
 	"github.com/stackrox/rox/pkg/postgres/pgtest"
+	"github.com/stackrox/rox/pkg/sac"
 	"github.com/stackrox/rox/pkg/testutils"
 	"github.com/stackrox/rox/pkg/testutils/envisolator"
 	"github.com/stretchr/testify/suite"
@@ -41,7 +42,7 @@ func (s *MultikeyStoreSuite) TearDownTest() {
 }
 
 func (s *MultikeyStoreSuite) TestStore() {
-	ctx := context.Background()
+	ctx := sac.WithAllAccess(context.Background())
 
 	source := pgtest.GetConnectionString(s.T())
 	config, err := pgxpool.ParseConfig(source)
@@ -61,6 +62,8 @@ func (s *MultikeyStoreSuite) TestStore() {
 	s.False(exists)
 	s.Nil(foundTestMultiKeyStruct)
 
+	withNoAccess := sac.WithNoAccess(ctx)
+
 	s.NoError(store.Upsert(ctx, testMultiKeyStruct))
 	foundTestMultiKeyStruct, exists, err = store.Get(ctx, testMultiKeyStruct.GetKey1(), testMultiKeyStruct.GetKey2())
 	s.NoError(err)
@@ -71,10 +74,15 @@ func (s *MultikeyStoreSuite) TestStore() {
 	s.NoError(err)
 	s.Equal(testMultiKeyStructCount, 1)
 
+	testMultiKeyStructCount, err = store.Count(withNoAccess)
+	s.NoError(err)
+	s.Zero(testMultiKeyStructCount)
+
 	testMultiKeyStructExists, err := store.Exists(ctx, testMultiKeyStruct.GetKey1(), testMultiKeyStruct.GetKey2())
 	s.NoError(err)
 	s.True(testMultiKeyStructExists)
 	s.NoError(store.Upsert(ctx, testMultiKeyStruct))
+	s.ErrorIs(store.Upsert(withNoAccess, testMultiKeyStruct), sac.ErrResourceAccessDenied)
 
 	foundTestMultiKeyStruct, exists, err = store.Get(ctx, testMultiKeyStruct.GetKey1(), testMultiKeyStruct.GetKey2())
 	s.NoError(err)
@@ -86,6 +94,8 @@ func (s *MultikeyStoreSuite) TestStore() {
 	s.NoError(err)
 	s.False(exists)
 	s.Nil(foundTestMultiKeyStruct)
+
+	s.ErrorIs(store.Delete(withNoAccess, testMultiKeyStruct.GetKey1(), testMultiKeyStruct.GetKey2()), sac.ErrResourceAccessDenied)
 
 	var testMultiKeyStructs []*storage.TestMultiKeyStruct
 	for i := 0; i < 200; i++ {

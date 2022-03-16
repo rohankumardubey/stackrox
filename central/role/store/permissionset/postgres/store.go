@@ -12,11 +12,13 @@ import (
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/stackrox/rox/central/globaldb"
 	"github.com/stackrox/rox/central/metrics"
+	"github.com/stackrox/rox/central/role/resources"
 	"github.com/stackrox/rox/generated/storage"
 	"github.com/stackrox/rox/pkg/logging"
 	ops "github.com/stackrox/rox/pkg/metrics"
 	"github.com/stackrox/rox/pkg/postgres/pgutils"
 	"github.com/stackrox/rox/pkg/postgres/walker"
+	"github.com/stackrox/rox/pkg/sac"
 )
 
 const (
@@ -70,6 +72,7 @@ type storeImpl struct {
 	db *pgxpool.Pool
 }
 
+//region Create Table
 func createTablePermissionsets(ctx context.Context, db *pgxpool.Pool) {
 	table := `
 create table if not exists permissionsets (
@@ -95,6 +98,9 @@ create table if not exists permissionsets (
 	}
 
 }
+
+//endregion
+//region InsertInto
 
 func insertIntoPermissionsets(ctx context.Context, tx pgx.Tx, obj *storage.PermissionSet) error {
 
@@ -195,6 +201,8 @@ func (s *storeImpl) copyFromPermissionsets(ctx context.Context, tx pgx.Tx, objs 
 	return err
 }
 
+//endregion
+
 // New returns a new Store instance using the provided sql instance.
 func New(ctx context.Context, db *pgxpool.Pool) Store {
 	createTablePermissionsets(ctx, db)
@@ -203,6 +211,8 @@ func New(ctx context.Context, db *pgxpool.Pool) Store {
 		db: db,
 	}
 }
+
+//region Store interface implementation
 
 func (s *storeImpl) copyFrom(ctx context.Context, objs ...*storage.PermissionSet) error {
 	conn, release := s.acquireConn(ctx, ops.Get, "PermissionSet")
@@ -251,11 +261,25 @@ func (s *storeImpl) upsert(ctx context.Context, objs ...*storage.PermissionSet) 
 func (s *storeImpl) Upsert(ctx context.Context, obj *storage.PermissionSet) error {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.Upsert, "PermissionSet")
 
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_WRITE_ACCESS).Resource(resources.PermissionSet)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return err
+	} else if !ok {
+		return sac.ErrResourceAccessDenied
+	}
+
 	return s.upsert(ctx, obj)
 }
 
 func (s *storeImpl) UpsertMany(ctx context.Context, objs []*storage.PermissionSet) error {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.UpdateMany, "PermissionSet")
+
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_WRITE_ACCESS).Resource(resources.PermissionSet)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return err
+	} else if !ok {
+		return sac.ErrResourceAccessDenied
+	}
 
 	if len(objs) < batchAfter {
 		return s.upsert(ctx, objs...)
@@ -267,6 +291,11 @@ func (s *storeImpl) UpsertMany(ctx context.Context, objs []*storage.PermissionSe
 // Count returns the number of objects in the store
 func (s *storeImpl) Count(ctx context.Context) (int, error) {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.Count, "PermissionSet")
+
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_ACCESS).Resource(resources.PermissionSet)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil || !ok {
+		return 0, err
+	}
 
 	row := s.db.QueryRow(ctx, countStmt)
 	var count int
@@ -280,6 +309,13 @@ func (s *storeImpl) Count(ctx context.Context) (int, error) {
 func (s *storeImpl) Exists(ctx context.Context, id string) (bool, error) {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.Exists, "PermissionSet")
 
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_ACCESS).Resource(resources.PermissionSet)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return false, err
+	} else if !ok {
+		return false, nil
+	}
+
 	row := s.db.QueryRow(ctx, existsStmt, id)
 	var exists bool
 	if err := row.Scan(&exists); err != nil {
@@ -291,6 +327,13 @@ func (s *storeImpl) Exists(ctx context.Context, id string) (bool, error) {
 // Get returns the object, if it exists from the store
 func (s *storeImpl) Get(ctx context.Context, id string) (*storage.PermissionSet, bool, error) {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.Get, "PermissionSet")
+
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_ACCESS).Resource(resources.PermissionSet)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return nil, false, err
+	} else if !ok {
+		return nil, false, nil
+	}
 
 	conn, release := s.acquireConn(ctx, ops.Get, "PermissionSet")
 	defer release()
@@ -321,6 +364,13 @@ func (s *storeImpl) acquireConn(ctx context.Context, op ops.Op, typ string) (*pg
 func (s *storeImpl) Delete(ctx context.Context, id string) error {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.Remove, "PermissionSet")
 
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_WRITE_ACCESS).Resource(resources.PermissionSet)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return err
+	} else if !ok {
+		return sac.ErrResourceAccessDenied
+	}
+
 	conn, release := s.acquireConn(ctx, ops.Remove, "PermissionSet")
 	defer release()
 
@@ -333,6 +383,13 @@ func (s *storeImpl) Delete(ctx context.Context, id string) error {
 // GetIDs returns all the IDs for the store
 func (s *storeImpl) GetIDs(ctx context.Context) ([]string, error) {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.GetAll, "storage.PermissionSetIDs")
+
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_ACCESS).Resource(resources.PermissionSet)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, nil
+	}
 
 	rows, err := s.db.Query(ctx, getIDsStmt)
 	if err != nil {
@@ -353,6 +410,13 @@ func (s *storeImpl) GetIDs(ctx context.Context) ([]string, error) {
 // GetMany returns the objects specified by the IDs or the index in the missing indices slice
 func (s *storeImpl) GetMany(ctx context.Context, ids []string) ([]*storage.PermissionSet, []int, error) {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.GetMany, "PermissionSet")
+
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_ACCESS).Resource(resources.PermissionSet)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return nil, nil, err
+	} else if !ok {
+		return nil, nil, nil
+	}
 
 	conn, release := s.acquireConn(ctx, ops.GetMany, "PermissionSet")
 	defer release()
@@ -399,6 +463,13 @@ func (s *storeImpl) GetMany(ctx context.Context, ids []string) ([]*storage.Permi
 func (s *storeImpl) DeleteMany(ctx context.Context, ids []string) error {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.RemoveMany, "PermissionSet")
 
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_WRITE_ACCESS).Resource(resources.PermissionSet)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return err
+	} else if !ok {
+		return sac.ErrResourceAccessDenied
+	}
+
 	conn, release := s.acquireConn(ctx, ops.RemoveMany, "PermissionSet")
 	defer release()
 	if _, err := conn.Exec(ctx, deleteManyStmt, ids); err != nil {
@@ -430,12 +501,18 @@ func (s *storeImpl) Walk(ctx context.Context, fn func(obj *storage.PermissionSet
 	return nil
 }
 
+//endregion
+
 //// Used for testing
+
+//region DropTable
 
 func dropTablePermissionsets(ctx context.Context, db *pgxpool.Pool) {
 	_, _ = db.Exec(ctx, "DROP TABLE IF EXISTS permissionsets CASCADE")
 
 }
+
+//endregion
 
 func Destroy(ctx context.Context, db *pgxpool.Pool) {
 	dropTablePermissionsets(ctx, db)

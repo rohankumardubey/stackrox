@@ -12,11 +12,13 @@ import (
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/stackrox/rox/central/globaldb"
 	"github.com/stackrox/rox/central/metrics"
+	"github.com/stackrox/rox/central/role/resources"
 	"github.com/stackrox/rox/generated/storage"
 	"github.com/stackrox/rox/pkg/logging"
 	ops "github.com/stackrox/rox/pkg/metrics"
 	"github.com/stackrox/rox/pkg/postgres/pgutils"
 	"github.com/stackrox/rox/pkg/postgres/walker"
+	"github.com/stackrox/rox/pkg/sac"
 )
 
 const (
@@ -70,6 +72,7 @@ type storeImpl struct {
 	db *pgxpool.Pool
 }
 
+//region Create Table
 func createTableSinglekey(ctx context.Context, db *pgxpool.Pool) {
 	table := `
 create table if not exists singlekey (
@@ -140,6 +143,9 @@ create table if not exists singlekey_Nested (
 	}
 
 }
+
+//endregion
+//region InsertInto
 
 func insertIntoSinglekey(ctx context.Context, tx pgx.Tx, obj *storage.TestSingleKeyStruct) error {
 
@@ -390,6 +396,8 @@ func (s *storeImpl) copyFromSinglekeyNested(ctx context.Context, tx pgx.Tx, sing
 	return err
 }
 
+//endregion
+
 // New returns a new Store instance using the provided sql instance.
 func New(ctx context.Context, db *pgxpool.Pool) Store {
 	createTableSinglekey(ctx, db)
@@ -398,6 +406,8 @@ func New(ctx context.Context, db *pgxpool.Pool) Store {
 		db: db,
 	}
 }
+
+//region Store interface implementation
 
 func (s *storeImpl) copyFrom(ctx context.Context, objs ...*storage.TestSingleKeyStruct) error {
 	conn, release := s.acquireConn(ctx, ops.Get, "TestSingleKeyStruct")
@@ -446,11 +456,25 @@ func (s *storeImpl) upsert(ctx context.Context, objs ...*storage.TestSingleKeySt
 func (s *storeImpl) Upsert(ctx context.Context, obj *storage.TestSingleKeyStruct) error {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.Upsert, "TestSingleKeyStruct")
 
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_WRITE_ACCESS).Resource(resources.Namespace)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return err
+	} else if !ok {
+		return sac.ErrResourceAccessDenied
+	}
+
 	return s.upsert(ctx, obj)
 }
 
 func (s *storeImpl) UpsertMany(ctx context.Context, objs []*storage.TestSingleKeyStruct) error {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.UpdateMany, "TestSingleKeyStruct")
+
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_WRITE_ACCESS).Resource(resources.Namespace)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return err
+	} else if !ok {
+		return sac.ErrResourceAccessDenied
+	}
 
 	if len(objs) < batchAfter {
 		return s.upsert(ctx, objs...)
@@ -462,6 +486,11 @@ func (s *storeImpl) UpsertMany(ctx context.Context, objs []*storage.TestSingleKe
 // Count returns the number of objects in the store
 func (s *storeImpl) Count(ctx context.Context) (int, error) {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.Count, "TestSingleKeyStruct")
+
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_ACCESS).Resource(resources.Namespace)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil || !ok {
+		return 0, err
+	}
 
 	row := s.db.QueryRow(ctx, countStmt)
 	var count int
@@ -475,6 +504,13 @@ func (s *storeImpl) Count(ctx context.Context) (int, error) {
 func (s *storeImpl) Exists(ctx context.Context, key string) (bool, error) {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.Exists, "TestSingleKeyStruct")
 
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_ACCESS).Resource(resources.Namespace)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return false, err
+	} else if !ok {
+		return false, nil
+	}
+
 	row := s.db.QueryRow(ctx, existsStmt, key)
 	var exists bool
 	if err := row.Scan(&exists); err != nil {
@@ -486,6 +522,13 @@ func (s *storeImpl) Exists(ctx context.Context, key string) (bool, error) {
 // Get returns the object, if it exists from the store
 func (s *storeImpl) Get(ctx context.Context, key string) (*storage.TestSingleKeyStruct, bool, error) {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.Get, "TestSingleKeyStruct")
+
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_ACCESS).Resource(resources.Namespace)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return nil, false, err
+	} else if !ok {
+		return nil, false, nil
+	}
 
 	conn, release := s.acquireConn(ctx, ops.Get, "TestSingleKeyStruct")
 	defer release()
@@ -516,6 +559,13 @@ func (s *storeImpl) acquireConn(ctx context.Context, op ops.Op, typ string) (*pg
 func (s *storeImpl) Delete(ctx context.Context, key string) error {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.Remove, "TestSingleKeyStruct")
 
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_WRITE_ACCESS).Resource(resources.Namespace)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return err
+	} else if !ok {
+		return sac.ErrResourceAccessDenied
+	}
+
 	conn, release := s.acquireConn(ctx, ops.Remove, "TestSingleKeyStruct")
 	defer release()
 
@@ -528,6 +578,13 @@ func (s *storeImpl) Delete(ctx context.Context, key string) error {
 // GetIDs returns all the IDs for the store
 func (s *storeImpl) GetIDs(ctx context.Context) ([]string, error) {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.GetAll, "storage.TestSingleKeyStructIDs")
+
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_ACCESS).Resource(resources.Namespace)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, nil
+	}
 
 	rows, err := s.db.Query(ctx, getIDsStmt)
 	if err != nil {
@@ -548,6 +605,13 @@ func (s *storeImpl) GetIDs(ctx context.Context) ([]string, error) {
 // GetMany returns the objects specified by the IDs or the index in the missing indices slice
 func (s *storeImpl) GetMany(ctx context.Context, ids []string) ([]*storage.TestSingleKeyStruct, []int, error) {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.GetMany, "TestSingleKeyStruct")
+
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_ACCESS).Resource(resources.Namespace)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return nil, nil, err
+	} else if !ok {
+		return nil, nil, nil
+	}
 
 	conn, release := s.acquireConn(ctx, ops.GetMany, "TestSingleKeyStruct")
 	defer release()
@@ -594,6 +658,13 @@ func (s *storeImpl) GetMany(ctx context.Context, ids []string) ([]*storage.TestS
 func (s *storeImpl) DeleteMany(ctx context.Context, ids []string) error {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.RemoveMany, "TestSingleKeyStruct")
 
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_WRITE_ACCESS).Resource(resources.Namespace)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return err
+	} else if !ok {
+		return sac.ErrResourceAccessDenied
+	}
+
 	conn, release := s.acquireConn(ctx, ops.RemoveMany, "TestSingleKeyStruct")
 	defer release()
 	if _, err := conn.Exec(ctx, deleteManyStmt, ids); err != nil {
@@ -625,7 +696,11 @@ func (s *storeImpl) Walk(ctx context.Context, fn func(obj *storage.TestSingleKey
 	return nil
 }
 
+//endregion
+
 //// Used for testing
+
+//region DropTable
 
 func dropTableSinglekey(ctx context.Context, db *pgxpool.Pool) {
 	_, _ = db.Exec(ctx, "DROP TABLE IF EXISTS singlekey CASCADE")
@@ -637,6 +712,8 @@ func dropTableSinglekeyNested(ctx context.Context, db *pgxpool.Pool) {
 	_, _ = db.Exec(ctx, "DROP TABLE IF EXISTS singlekey_Nested CASCADE")
 
 }
+
+//endregion
 
 func Destroy(ctx context.Context, db *pgxpool.Pool) {
 	dropTableSinglekey(ctx, db)

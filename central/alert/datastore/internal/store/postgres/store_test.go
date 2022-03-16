@@ -12,6 +12,7 @@ import (
 	storage "github.com/stackrox/rox/generated/storage"
 	"github.com/stackrox/rox/pkg/features"
 	"github.com/stackrox/rox/pkg/postgres/pgtest"
+	"github.com/stackrox/rox/pkg/sac"
 	"github.com/stackrox/rox/pkg/testutils"
 	"github.com/stackrox/rox/pkg/testutils/envisolator"
 	"github.com/stretchr/testify/suite"
@@ -41,7 +42,7 @@ func (s *AlertsStoreSuite) TearDownTest() {
 }
 
 func (s *AlertsStoreSuite) TestStore() {
-	ctx := context.Background()
+	ctx := sac.WithAllAccess(context.Background())
 
 	source := pgtest.GetConnectionString(s.T())
 	config, err := pgxpool.ParseConfig(source)
@@ -61,6 +62,8 @@ func (s *AlertsStoreSuite) TestStore() {
 	s.False(exists)
 	s.Nil(foundAlert)
 
+	withNoAccess := sac.WithNoAccess(ctx)
+
 	s.NoError(store.Upsert(ctx, alert))
 	foundAlert, exists, err = store.Get(ctx, alert.GetId())
 	s.NoError(err)
@@ -71,10 +74,15 @@ func (s *AlertsStoreSuite) TestStore() {
 	s.NoError(err)
 	s.Equal(alertCount, 1)
 
+	alertCount, err = store.Count(withNoAccess)
+	s.NoError(err)
+	s.Zero(alertCount)
+
 	alertExists, err := store.Exists(ctx, alert.GetId())
 	s.NoError(err)
 	s.True(alertExists)
 	s.NoError(store.Upsert(ctx, alert))
+	s.ErrorIs(store.Upsert(withNoAccess, alert), sac.ErrResourceAccessDenied)
 
 	foundAlert, exists, err = store.Get(ctx, alert.GetId())
 	s.NoError(err)
@@ -86,6 +94,8 @@ func (s *AlertsStoreSuite) TestStore() {
 	s.NoError(err)
 	s.False(exists)
 	s.Nil(foundAlert)
+
+	s.ErrorIs(store.Delete(withNoAccess, alert.GetId()), sac.ErrResourceAccessDenied)
 
 	var alerts []*storage.Alert
 	for i := 0; i < 200; i++ {

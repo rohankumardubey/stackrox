@@ -12,6 +12,7 @@ import (
 	storage "github.com/stackrox/rox/generated/storage"
 	"github.com/stackrox/rox/pkg/features"
 	"github.com/stackrox/rox/pkg/postgres/pgtest"
+	"github.com/stackrox/rox/pkg/sac"
 	"github.com/stackrox/rox/pkg/testutils"
 	"github.com/stackrox/rox/pkg/testutils/envisolator"
 	"github.com/stretchr/testify/suite"
@@ -41,7 +42,7 @@ func (s *PodsStoreSuite) TearDownTest() {
 }
 
 func (s *PodsStoreSuite) TestStore() {
-	ctx := context.Background()
+	ctx := sac.WithAllAccess(context.Background())
 
 	source := pgtest.GetConnectionString(s.T())
 	config, err := pgxpool.ParseConfig(source)
@@ -61,6 +62,8 @@ func (s *PodsStoreSuite) TestStore() {
 	s.False(exists)
 	s.Nil(foundPod)
 
+	withNoAccess := sac.WithNoAccess(ctx)
+
 	s.NoError(store.Upsert(ctx, pod))
 	foundPod, exists, err = store.Get(ctx, pod.GetId())
 	s.NoError(err)
@@ -71,10 +74,15 @@ func (s *PodsStoreSuite) TestStore() {
 	s.NoError(err)
 	s.Equal(podCount, 1)
 
+	podCount, err = store.Count(withNoAccess)
+	s.NoError(err)
+	s.Zero(podCount)
+
 	podExists, err := store.Exists(ctx, pod.GetId())
 	s.NoError(err)
 	s.True(podExists)
 	s.NoError(store.Upsert(ctx, pod))
+	s.ErrorIs(store.Upsert(withNoAccess, pod), sac.ErrResourceAccessDenied)
 
 	foundPod, exists, err = store.Get(ctx, pod.GetId())
 	s.NoError(err)
@@ -86,6 +94,8 @@ func (s *PodsStoreSuite) TestStore() {
 	s.NoError(err)
 	s.False(exists)
 	s.Nil(foundPod)
+
+	s.ErrorIs(store.Delete(withNoAccess, pod.GetId()), sac.ErrResourceAccessDenied)
 
 	var pods []*storage.Pod
 	for i := 0; i < 200; i++ {

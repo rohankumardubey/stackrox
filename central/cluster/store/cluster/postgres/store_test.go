@@ -12,6 +12,7 @@ import (
 	storage "github.com/stackrox/rox/generated/storage"
 	"github.com/stackrox/rox/pkg/features"
 	"github.com/stackrox/rox/pkg/postgres/pgtest"
+	"github.com/stackrox/rox/pkg/sac"
 	"github.com/stackrox/rox/pkg/testutils"
 	"github.com/stackrox/rox/pkg/testutils/envisolator"
 	"github.com/stretchr/testify/suite"
@@ -41,7 +42,7 @@ func (s *ClustersStoreSuite) TearDownTest() {
 }
 
 func (s *ClustersStoreSuite) TestStore() {
-	ctx := context.Background()
+	ctx := sac.WithAllAccess(context.Background())
 
 	source := pgtest.GetConnectionString(s.T())
 	config, err := pgxpool.ParseConfig(source)
@@ -61,6 +62,8 @@ func (s *ClustersStoreSuite) TestStore() {
 	s.False(exists)
 	s.Nil(foundCluster)
 
+	withNoAccess := sac.WithNoAccess(ctx)
+
 	s.NoError(store.Upsert(ctx, cluster))
 	foundCluster, exists, err = store.Get(ctx, cluster.GetId())
 	s.NoError(err)
@@ -71,10 +74,15 @@ func (s *ClustersStoreSuite) TestStore() {
 	s.NoError(err)
 	s.Equal(clusterCount, 1)
 
+	clusterCount, err = store.Count(withNoAccess)
+	s.NoError(err)
+	s.Zero(clusterCount)
+
 	clusterExists, err := store.Exists(ctx, cluster.GetId())
 	s.NoError(err)
 	s.True(clusterExists)
 	s.NoError(store.Upsert(ctx, cluster))
+	s.ErrorIs(store.Upsert(withNoAccess, cluster), sac.ErrResourceAccessDenied)
 
 	foundCluster, exists, err = store.Get(ctx, cluster.GetId())
 	s.NoError(err)
@@ -86,6 +94,8 @@ func (s *ClustersStoreSuite) TestStore() {
 	s.NoError(err)
 	s.False(exists)
 	s.Nil(foundCluster)
+
+	s.ErrorIs(store.Delete(withNoAccess, cluster.GetId()), sac.ErrResourceAccessDenied)
 
 	var clusters []*storage.Cluster
 	for i := 0; i < 200; i++ {

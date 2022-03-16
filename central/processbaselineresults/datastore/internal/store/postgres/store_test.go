@@ -12,6 +12,7 @@ import (
 	"github.com/stackrox/rox/generated/storage"
 	"github.com/stackrox/rox/pkg/features"
 	"github.com/stackrox/rox/pkg/postgres/pgtest"
+	"github.com/stackrox/rox/pkg/sac"
 	"github.com/stackrox/rox/pkg/testutils"
 	"github.com/stackrox/rox/pkg/testutils/envisolator"
 	"github.com/stretchr/testify/suite"
@@ -41,7 +42,7 @@ func (s *ProcesswhitelistresultsStoreSuite) TearDownTest() {
 }
 
 func (s *ProcesswhitelistresultsStoreSuite) TestStore() {
-	ctx := context.Background()
+	ctx := sac.WithAllAccess(context.Background())
 
 	source := pgtest.GetConnectionString(s.T())
 	config, err := pgxpool.ParseConfig(source)
@@ -61,6 +62,8 @@ func (s *ProcesswhitelistresultsStoreSuite) TestStore() {
 	s.False(exists)
 	s.Nil(foundProcessBaselineResults)
 
+	withNoAccess := sac.WithNoAccess(ctx)
+
 	s.NoError(store.Upsert(ctx, processBaselineResults))
 	foundProcessBaselineResults, exists, err = store.Get(ctx, processBaselineResults.GetDeploymentId())
 	s.NoError(err)
@@ -71,10 +74,15 @@ func (s *ProcesswhitelistresultsStoreSuite) TestStore() {
 	s.NoError(err)
 	s.Equal(processBaselineResultsCount, 1)
 
+	processBaselineResultsCount, err = store.Count(withNoAccess)
+	s.NoError(err)
+	s.Zero(processBaselineResultsCount)
+
 	processBaselineResultsExists, err := store.Exists(ctx, processBaselineResults.GetDeploymentId())
 	s.NoError(err)
 	s.True(processBaselineResultsExists)
 	s.NoError(store.Upsert(ctx, processBaselineResults))
+	s.ErrorIs(store.Upsert(withNoAccess, processBaselineResults), sac.ErrResourceAccessDenied)
 
 	foundProcessBaselineResults, exists, err = store.Get(ctx, processBaselineResults.GetDeploymentId())
 	s.NoError(err)
@@ -86,6 +94,8 @@ func (s *ProcesswhitelistresultsStoreSuite) TestStore() {
 	s.NoError(err)
 	s.False(exists)
 	s.Nil(foundProcessBaselineResults)
+
+	s.ErrorIs(store.Delete(withNoAccess, processBaselineResults.GetDeploymentId()), sac.ErrResourceAccessDenied)
 
 	var processBaselineResultss []*storage.ProcessBaselineResults
 	for i := 0; i < 200; i++ {

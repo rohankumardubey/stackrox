@@ -12,6 +12,7 @@ import (
 	storage "github.com/stackrox/rox/generated/storage"
 	"github.com/stackrox/rox/pkg/features"
 	"github.com/stackrox/rox/pkg/postgres/pgtest"
+	"github.com/stackrox/rox/pkg/sac"
 	"github.com/stackrox/rox/pkg/testutils"
 	"github.com/stackrox/rox/pkg/testutils/envisolator"
 	"github.com/stretchr/testify/suite"
@@ -41,7 +42,7 @@ func (s *ServiceaccountsStoreSuite) TearDownTest() {
 }
 
 func (s *ServiceaccountsStoreSuite) TestStore() {
-	ctx := context.Background()
+	ctx := sac.WithAllAccess(context.Background())
 
 	source := pgtest.GetConnectionString(s.T())
 	config, err := pgxpool.ParseConfig(source)
@@ -61,6 +62,8 @@ func (s *ServiceaccountsStoreSuite) TestStore() {
 	s.False(exists)
 	s.Nil(foundServiceAccount)
 
+	withNoAccess := sac.WithNoAccess(ctx)
+
 	s.NoError(store.Upsert(ctx, serviceAccount))
 	foundServiceAccount, exists, err = store.Get(ctx, serviceAccount.GetId())
 	s.NoError(err)
@@ -71,10 +74,15 @@ func (s *ServiceaccountsStoreSuite) TestStore() {
 	s.NoError(err)
 	s.Equal(serviceAccountCount, 1)
 
+	serviceAccountCount, err = store.Count(withNoAccess)
+	s.NoError(err)
+	s.Zero(serviceAccountCount)
+
 	serviceAccountExists, err := store.Exists(ctx, serviceAccount.GetId())
 	s.NoError(err)
 	s.True(serviceAccountExists)
 	s.NoError(store.Upsert(ctx, serviceAccount))
+	s.ErrorIs(store.Upsert(withNoAccess, serviceAccount), sac.ErrResourceAccessDenied)
 
 	foundServiceAccount, exists, err = store.Get(ctx, serviceAccount.GetId())
 	s.NoError(err)
@@ -86,6 +94,8 @@ func (s *ServiceaccountsStoreSuite) TestStore() {
 	s.NoError(err)
 	s.False(exists)
 	s.Nil(foundServiceAccount)
+
+	s.ErrorIs(store.Delete(withNoAccess, serviceAccount.GetId()), sac.ErrResourceAccessDenied)
 
 	var serviceAccounts []*storage.ServiceAccount
 	for i := 0; i < 200; i++ {

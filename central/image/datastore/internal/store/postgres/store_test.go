@@ -12,6 +12,7 @@ import (
 	storage "github.com/stackrox/rox/generated/storage"
 	"github.com/stackrox/rox/pkg/features"
 	"github.com/stackrox/rox/pkg/postgres/pgtest"
+	"github.com/stackrox/rox/pkg/sac"
 	"github.com/stackrox/rox/pkg/testutils"
 	"github.com/stackrox/rox/pkg/testutils/envisolator"
 	"github.com/stretchr/testify/suite"
@@ -41,7 +42,7 @@ func (s *ImagesStoreSuite) TearDownTest() {
 }
 
 func (s *ImagesStoreSuite) TestStore() {
-	ctx := context.Background()
+	ctx := sac.WithAllAccess(context.Background())
 
 	source := pgtest.GetConnectionString(s.T())
 	config, err := pgxpool.ParseConfig(source)
@@ -61,6 +62,8 @@ func (s *ImagesStoreSuite) TestStore() {
 	s.False(exists)
 	s.Nil(foundImage)
 
+	withNoAccess := sac.WithNoAccess(ctx)
+
 	s.NoError(store.Upsert(ctx, image))
 	foundImage, exists, err = store.Get(ctx, image.GetId())
 	s.NoError(err)
@@ -71,10 +74,15 @@ func (s *ImagesStoreSuite) TestStore() {
 	s.NoError(err)
 	s.Equal(imageCount, 1)
 
+	imageCount, err = store.Count(withNoAccess)
+	s.NoError(err)
+	s.Zero(imageCount)
+
 	imageExists, err := store.Exists(ctx, image.GetId())
 	s.NoError(err)
 	s.True(imageExists)
 	s.NoError(store.Upsert(ctx, image))
+	s.ErrorIs(store.Upsert(withNoAccess, image), sac.ErrResourceAccessDenied)
 
 	foundImage, exists, err = store.Get(ctx, image.GetId())
 	s.NoError(err)
@@ -86,6 +94,8 @@ func (s *ImagesStoreSuite) TestStore() {
 	s.NoError(err)
 	s.False(exists)
 	s.Nil(foundImage)
+
+	s.ErrorIs(store.Delete(withNoAccess, image.GetId()), sac.ErrResourceAccessDenied)
 
 	var images []*storage.Image
 	for i := 0; i < 200; i++ {

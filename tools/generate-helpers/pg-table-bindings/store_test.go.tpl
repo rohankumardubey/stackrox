@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/stackrox/rox/pkg/features"
 	"github.com/stackrox/rox/pkg/postgres/pgtest"
+	"github.com/stackrox/rox/pkg/sac"
 	"github.com/stackrox/rox/pkg/testutils"
 	"github.com/stackrox/rox/pkg/testutils/envisolator"
 	"github.com/stackrox/rox/pkg/uuid"
@@ -47,7 +48,7 @@ func (s *{{$namePrefix}}StoreSuite) TearDownTest() {
 }
 
 func (s *{{$namePrefix}}StoreSuite) TestStore() {
-    ctx := context.Background()
+    ctx := sac.WithAllAccess(context.Background())
 
 	source := pgtest.GetConnectionString(s.T())
 	config, err := pgxpool.ParseConfig(source)
@@ -68,6 +69,8 @@ func (s *{{$namePrefix}}StoreSuite) TestStore() {
 	s.Nil(found{{.TrimmedType|upperCamelCase}})
 
     {{if not .JoinTable -}}
+    withNoAccess := sac.WithNoAccess(ctx)
+
 	s.NoError(store.Upsert(ctx, {{$name}}))
 	found{{.TrimmedType|upperCamelCase}}, exists, err = store.Get(ctx, {{template "paramList" $}})
 	s.NoError(err)
@@ -78,10 +81,15 @@ func (s *{{$namePrefix}}StoreSuite) TestStore() {
 	s.NoError(err)
 	s.Equal({{$name}}Count, 1)
 
+    {{$name}}Count, err = store.Count(withNoAccess)
+    s.NoError(err)
+    s.Zero({{$name}}Count)
+
 	{{$name}}Exists, err := store.Exists(ctx, {{template "paramList" $}})
 	s.NoError(err)
 	s.True({{$name}}Exists)
 	s.NoError(store.Upsert(ctx, {{$name}}))
+	s.ErrorIs(store.Upsert(withNoAccess, {{$name}}), sac.ErrResourceAccessDenied)
 
 	found{{.TrimmedType|upperCamelCase}}, exists, err = store.Get(ctx, {{template "paramList" $}})
 	s.NoError(err)
@@ -93,6 +101,9 @@ func (s *{{$namePrefix}}StoreSuite) TestStore() {
 	s.NoError(err)
 	s.False(exists)
 	s.Nil(found{{.TrimmedType|upperCamelCase}})
+
+    s.ErrorIs(store.Delete(withNoAccess, {{template "paramList" $}}), sac.ErrResourceAccessDenied)
+
 
 	var {{$name}}s []*{{.Type}}
     for i := 0; i < 200; i++ {

@@ -11,11 +11,13 @@ import (
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/stackrox/rox/central/globaldb"
 	"github.com/stackrox/rox/central/metrics"
+	"github.com/stackrox/rox/central/role/resources"
 	"github.com/stackrox/rox/generated/storage"
 	"github.com/stackrox/rox/pkg/logging"
 	ops "github.com/stackrox/rox/pkg/metrics"
 	"github.com/stackrox/rox/pkg/postgres/pgutils"
 	"github.com/stackrox/rox/pkg/postgres/walker"
+	"github.com/stackrox/rox/pkg/sac"
 )
 
 const (
@@ -61,6 +63,7 @@ type storeImpl struct {
 	db *pgxpool.Pool
 }
 
+//region Create Table
 func createTableImageComponentRelation(ctx context.Context, db *pgxpool.Pool) {
 	table := `
 create table if not exists image_component_relation (
@@ -94,6 +97,8 @@ create table if not exists image_component_relation (
 
 }
 
+//endregion
+
 // New returns a new Store instance using the provided sql instance.
 func New(ctx context.Context, db *pgxpool.Pool) Store {
 	createTableImageComponentRelation(ctx, db)
@@ -103,9 +108,16 @@ func New(ctx context.Context, db *pgxpool.Pool) Store {
 	}
 }
 
+//region Store interface implementation
+
 // Count returns the number of objects in the store
 func (s *storeImpl) Count(ctx context.Context) (int, error) {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.Count, "ImageComponentEdge")
+
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_ACCESS).Resource(resources.ImageComponent)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil || !ok {
+		return 0, err
+	}
 
 	row := s.db.QueryRow(ctx, countStmt)
 	var count int
@@ -119,6 +131,13 @@ func (s *storeImpl) Count(ctx context.Context) (int, error) {
 func (s *storeImpl) Exists(ctx context.Context, imageId string, imageComponentId string) (bool, error) {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.Exists, "ImageComponentEdge")
 
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_ACCESS).Resource(resources.ImageComponent)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return false, err
+	} else if !ok {
+		return false, nil
+	}
+
 	row := s.db.QueryRow(ctx, existsStmt, imageId, imageComponentId)
 	var exists bool
 	if err := row.Scan(&exists); err != nil {
@@ -130,6 +149,13 @@ func (s *storeImpl) Exists(ctx context.Context, imageId string, imageComponentId
 // Get returns the object, if it exists from the store
 func (s *storeImpl) Get(ctx context.Context, imageId string, imageComponentId string) (*storage.ImageComponentEdge, bool, error) {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.Get, "ImageComponentEdge")
+
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_ACCESS).Resource(resources.ImageComponent)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return nil, false, err
+	} else if !ok {
+		return nil, false, nil
+	}
 
 	conn, release := s.acquireConn(ctx, ops.Get, "ImageComponentEdge")
 	defer release()
@@ -179,12 +205,18 @@ func (s *storeImpl) Walk(ctx context.Context, fn func(obj *storage.ImageComponen
 	return nil
 }
 
+//endregion
+
 //// Used for testing
+
+//region DropTable
 
 func dropTableImageComponentRelation(ctx context.Context, db *pgxpool.Pool) {
 	_, _ = db.Exec(ctx, "DROP TABLE IF EXISTS image_component_relation CASCADE")
 
 }
+
+//endregion
 
 func Destroy(ctx context.Context, db *pgxpool.Pool) {
 	dropTableImageComponentRelation(ctx, db)

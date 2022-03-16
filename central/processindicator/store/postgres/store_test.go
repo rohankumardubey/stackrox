@@ -12,6 +12,7 @@ import (
 	storage "github.com/stackrox/rox/generated/storage"
 	"github.com/stackrox/rox/pkg/features"
 	"github.com/stackrox/rox/pkg/postgres/pgtest"
+	"github.com/stackrox/rox/pkg/sac"
 	"github.com/stackrox/rox/pkg/testutils"
 	"github.com/stackrox/rox/pkg/testutils/envisolator"
 	"github.com/stretchr/testify/suite"
@@ -41,7 +42,7 @@ func (s *ProcessIndicatorsStoreSuite) TearDownTest() {
 }
 
 func (s *ProcessIndicatorsStoreSuite) TestStore() {
-	ctx := context.Background()
+	ctx := sac.WithAllAccess(context.Background())
 
 	source := pgtest.GetConnectionString(s.T())
 	config, err := pgxpool.ParseConfig(source)
@@ -61,6 +62,8 @@ func (s *ProcessIndicatorsStoreSuite) TestStore() {
 	s.False(exists)
 	s.Nil(foundProcessIndicator)
 
+	withNoAccess := sac.WithNoAccess(ctx)
+
 	s.NoError(store.Upsert(ctx, processIndicator))
 	foundProcessIndicator, exists, err = store.Get(ctx, processIndicator.GetId())
 	s.NoError(err)
@@ -71,10 +74,15 @@ func (s *ProcessIndicatorsStoreSuite) TestStore() {
 	s.NoError(err)
 	s.Equal(processIndicatorCount, 1)
 
+	processIndicatorCount, err = store.Count(withNoAccess)
+	s.NoError(err)
+	s.Zero(processIndicatorCount)
+
 	processIndicatorExists, err := store.Exists(ctx, processIndicator.GetId())
 	s.NoError(err)
 	s.True(processIndicatorExists)
 	s.NoError(store.Upsert(ctx, processIndicator))
+	s.ErrorIs(store.Upsert(withNoAccess, processIndicator), sac.ErrResourceAccessDenied)
 
 	foundProcessIndicator, exists, err = store.Get(ctx, processIndicator.GetId())
 	s.NoError(err)
@@ -86,6 +94,8 @@ func (s *ProcessIndicatorsStoreSuite) TestStore() {
 	s.NoError(err)
 	s.False(exists)
 	s.Nil(foundProcessIndicator)
+
+	s.ErrorIs(store.Delete(withNoAccess, processIndicator.GetId()), sac.ErrResourceAccessDenied)
 
 	var processIndicators []*storage.ProcessIndicator
 	for i := 0; i < 200; i++ {

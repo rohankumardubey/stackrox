@@ -12,6 +12,7 @@ import (
 	storage "github.com/stackrox/rox/generated/storage"
 	"github.com/stackrox/rox/pkg/features"
 	"github.com/stackrox/rox/pkg/postgres/pgtest"
+	"github.com/stackrox/rox/pkg/sac"
 	"github.com/stackrox/rox/pkg/testutils"
 	"github.com/stackrox/rox/pkg/testutils/envisolator"
 	"github.com/stretchr/testify/suite"
@@ -41,7 +42,7 @@ func (s *ClusterCvesStoreSuite) TearDownTest() {
 }
 
 func (s *ClusterCvesStoreSuite) TestStore() {
-	ctx := context.Background()
+	ctx := sac.WithAllAccess(context.Background())
 
 	source := pgtest.GetConnectionString(s.T())
 	config, err := pgxpool.ParseConfig(source)
@@ -61,6 +62,8 @@ func (s *ClusterCvesStoreSuite) TestStore() {
 	s.False(exists)
 	s.Nil(foundCVE)
 
+	withNoAccess := sac.WithNoAccess(ctx)
+
 	s.NoError(store.Upsert(ctx, cVE))
 	foundCVE, exists, err = store.Get(ctx, cVE.GetId())
 	s.NoError(err)
@@ -71,10 +74,15 @@ func (s *ClusterCvesStoreSuite) TestStore() {
 	s.NoError(err)
 	s.Equal(cVECount, 1)
 
+	cVECount, err = store.Count(withNoAccess)
+	s.NoError(err)
+	s.Zero(cVECount)
+
 	cVEExists, err := store.Exists(ctx, cVE.GetId())
 	s.NoError(err)
 	s.True(cVEExists)
 	s.NoError(store.Upsert(ctx, cVE))
+	s.ErrorIs(store.Upsert(withNoAccess, cVE), sac.ErrResourceAccessDenied)
 
 	foundCVE, exists, err = store.Get(ctx, cVE.GetId())
 	s.NoError(err)
@@ -86,6 +94,8 @@ func (s *ClusterCvesStoreSuite) TestStore() {
 	s.NoError(err)
 	s.False(exists)
 	s.Nil(foundCVE)
+
+	s.ErrorIs(store.Delete(withNoAccess, cVE.GetId()), sac.ErrResourceAccessDenied)
 
 	var cVEs []*storage.CVE
 	for i := 0; i < 200; i++ {

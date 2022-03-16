@@ -12,11 +12,13 @@ import (
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/stackrox/rox/central/globaldb"
 	"github.com/stackrox/rox/central/metrics"
+	"github.com/stackrox/rox/central/role/resources"
 	"github.com/stackrox/rox/generated/storage"
 	"github.com/stackrox/rox/pkg/logging"
 	ops "github.com/stackrox/rox/pkg/metrics"
 	"github.com/stackrox/rox/pkg/postgres/pgutils"
 	"github.com/stackrox/rox/pkg/postgres/walker"
+	"github.com/stackrox/rox/pkg/sac"
 )
 
 const (
@@ -70,6 +72,7 @@ type storeImpl struct {
 	db *pgxpool.Pool
 }
 
+//region Create Table
 func createTableNodeCves(ctx context.Context, db *pgxpool.Pool) {
 	table := `
 create table if not exists node_cves (
@@ -158,6 +161,9 @@ create table if not exists node_cves_References (
 	}
 
 }
+
+//endregion
+//region InsertInto
 
 func insertIntoNodeCves(ctx context.Context, tx pgx.Tx, obj *storage.CVE) error {
 
@@ -513,6 +519,8 @@ func (s *storeImpl) copyFromNodeCvesReferences(ctx context.Context, tx pgx.Tx, n
 	return err
 }
 
+//endregion
+
 // New returns a new Store instance using the provided sql instance.
 func New(ctx context.Context, db *pgxpool.Pool) Store {
 	createTableNodeCves(ctx, db)
@@ -521,6 +529,8 @@ func New(ctx context.Context, db *pgxpool.Pool) Store {
 		db: db,
 	}
 }
+
+//region Store interface implementation
 
 func (s *storeImpl) copyFrom(ctx context.Context, objs ...*storage.CVE) error {
 	conn, release := s.acquireConn(ctx, ops.Get, "CVE")
@@ -569,11 +579,25 @@ func (s *storeImpl) upsert(ctx context.Context, objs ...*storage.CVE) error {
 func (s *storeImpl) Upsert(ctx context.Context, obj *storage.CVE) error {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.Upsert, "CVE")
 
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_WRITE_ACCESS).Resource(resources.CVE)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return err
+	} else if !ok {
+		return sac.ErrResourceAccessDenied
+	}
+
 	return s.upsert(ctx, obj)
 }
 
 func (s *storeImpl) UpsertMany(ctx context.Context, objs []*storage.CVE) error {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.UpdateMany, "CVE")
+
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_WRITE_ACCESS).Resource(resources.CVE)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return err
+	} else if !ok {
+		return sac.ErrResourceAccessDenied
+	}
 
 	if len(objs) < batchAfter {
 		return s.upsert(ctx, objs...)
@@ -585,6 +609,11 @@ func (s *storeImpl) UpsertMany(ctx context.Context, objs []*storage.CVE) error {
 // Count returns the number of objects in the store
 func (s *storeImpl) Count(ctx context.Context) (int, error) {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.Count, "CVE")
+
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_ACCESS).Resource(resources.CVE)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil || !ok {
+		return 0, err
+	}
 
 	row := s.db.QueryRow(ctx, countStmt)
 	var count int
@@ -598,6 +627,13 @@ func (s *storeImpl) Count(ctx context.Context) (int, error) {
 func (s *storeImpl) Exists(ctx context.Context, id string) (bool, error) {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.Exists, "CVE")
 
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_ACCESS).Resource(resources.CVE)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return false, err
+	} else if !ok {
+		return false, nil
+	}
+
 	row := s.db.QueryRow(ctx, existsStmt, id)
 	var exists bool
 	if err := row.Scan(&exists); err != nil {
@@ -609,6 +645,13 @@ func (s *storeImpl) Exists(ctx context.Context, id string) (bool, error) {
 // Get returns the object, if it exists from the store
 func (s *storeImpl) Get(ctx context.Context, id string) (*storage.CVE, bool, error) {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.Get, "CVE")
+
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_ACCESS).Resource(resources.CVE)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return nil, false, err
+	} else if !ok {
+		return nil, false, nil
+	}
 
 	conn, release := s.acquireConn(ctx, ops.Get, "CVE")
 	defer release()
@@ -639,6 +682,13 @@ func (s *storeImpl) acquireConn(ctx context.Context, op ops.Op, typ string) (*pg
 func (s *storeImpl) Delete(ctx context.Context, id string) error {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.Remove, "CVE")
 
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_WRITE_ACCESS).Resource(resources.CVE)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return err
+	} else if !ok {
+		return sac.ErrResourceAccessDenied
+	}
+
 	conn, release := s.acquireConn(ctx, ops.Remove, "CVE")
 	defer release()
 
@@ -651,6 +701,13 @@ func (s *storeImpl) Delete(ctx context.Context, id string) error {
 // GetIDs returns all the IDs for the store
 func (s *storeImpl) GetIDs(ctx context.Context) ([]string, error) {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.GetAll, "storage.CVEIDs")
+
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_ACCESS).Resource(resources.CVE)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, nil
+	}
 
 	rows, err := s.db.Query(ctx, getIDsStmt)
 	if err != nil {
@@ -671,6 +728,13 @@ func (s *storeImpl) GetIDs(ctx context.Context) ([]string, error) {
 // GetMany returns the objects specified by the IDs or the index in the missing indices slice
 func (s *storeImpl) GetMany(ctx context.Context, ids []string) ([]*storage.CVE, []int, error) {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.GetMany, "CVE")
+
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_ACCESS).Resource(resources.CVE)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return nil, nil, err
+	} else if !ok {
+		return nil, nil, nil
+	}
 
 	conn, release := s.acquireConn(ctx, ops.GetMany, "CVE")
 	defer release()
@@ -717,6 +781,13 @@ func (s *storeImpl) GetMany(ctx context.Context, ids []string) ([]*storage.CVE, 
 func (s *storeImpl) DeleteMany(ctx context.Context, ids []string) error {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.RemoveMany, "CVE")
 
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_WRITE_ACCESS).Resource(resources.CVE)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return err
+	} else if !ok {
+		return sac.ErrResourceAccessDenied
+	}
+
 	conn, release := s.acquireConn(ctx, ops.RemoveMany, "CVE")
 	defer release()
 	if _, err := conn.Exec(ctx, deleteManyStmt, ids); err != nil {
@@ -748,7 +819,11 @@ func (s *storeImpl) Walk(ctx context.Context, fn func(obj *storage.CVE) error) e
 	return nil
 }
 
+//endregion
+
 //// Used for testing
+
+//region DropTable
 
 func dropTableNodeCves(ctx context.Context, db *pgxpool.Pool) {
 	_, _ = db.Exec(ctx, "DROP TABLE IF EXISTS node_cves CASCADE")
@@ -760,6 +835,8 @@ func dropTableNodeCvesReferences(ctx context.Context, db *pgxpool.Pool) {
 	_, _ = db.Exec(ctx, "DROP TABLE IF EXISTS node_cves_References CASCADE")
 
 }
+
+//endregion
 
 func Destroy(ctx context.Context, db *pgxpool.Pool) {
 	dropTableNodeCves(ctx, db)

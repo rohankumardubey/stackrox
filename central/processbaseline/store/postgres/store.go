@@ -12,11 +12,13 @@ import (
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/stackrox/rox/central/globaldb"
 	"github.com/stackrox/rox/central/metrics"
+	"github.com/stackrox/rox/central/role/resources"
 	"github.com/stackrox/rox/generated/storage"
 	"github.com/stackrox/rox/pkg/logging"
 	ops "github.com/stackrox/rox/pkg/metrics"
 	"github.com/stackrox/rox/pkg/postgres/pgutils"
 	"github.com/stackrox/rox/pkg/postgres/walker"
+	"github.com/stackrox/rox/pkg/sac"
 )
 
 const (
@@ -70,6 +72,7 @@ type storeImpl struct {
 	db *pgxpool.Pool
 }
 
+//region Create Table
 func createTableProcessbaselines(ctx context.Context, db *pgxpool.Pool) {
 	table := `
 create table if not exists processbaselines (
@@ -160,6 +163,9 @@ create table if not exists processbaselines_ElementGraveyard (
 	}
 
 }
+
+//endregion
+//region InsertInto
 
 func insertIntoProcessbaselines(ctx context.Context, tx pgx.Tx, obj *storage.ProcessBaseline) error {
 
@@ -459,6 +465,8 @@ func (s *storeImpl) copyFromProcessbaselinesElementGraveyard(ctx context.Context
 	return err
 }
 
+//endregion
+
 // New returns a new Store instance using the provided sql instance.
 func New(ctx context.Context, db *pgxpool.Pool) Store {
 	createTableProcessbaselines(ctx, db)
@@ -467,6 +475,8 @@ func New(ctx context.Context, db *pgxpool.Pool) Store {
 		db: db,
 	}
 }
+
+//region Store interface implementation
 
 func (s *storeImpl) copyFrom(ctx context.Context, objs ...*storage.ProcessBaseline) error {
 	conn, release := s.acquireConn(ctx, ops.Get, "ProcessBaseline")
@@ -515,11 +525,25 @@ func (s *storeImpl) upsert(ctx context.Context, objs ...*storage.ProcessBaseline
 func (s *storeImpl) Upsert(ctx context.Context, obj *storage.ProcessBaseline) error {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.Upsert, "ProcessBaseline")
 
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_WRITE_ACCESS).Resource(resources.ProcessBaseline)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return err
+	} else if !ok {
+		return sac.ErrResourceAccessDenied
+	}
+
 	return s.upsert(ctx, obj)
 }
 
 func (s *storeImpl) UpsertMany(ctx context.Context, objs []*storage.ProcessBaseline) error {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.UpdateMany, "ProcessBaseline")
+
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_WRITE_ACCESS).Resource(resources.ProcessBaseline)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return err
+	} else if !ok {
+		return sac.ErrResourceAccessDenied
+	}
 
 	if len(objs) < batchAfter {
 		return s.upsert(ctx, objs...)
@@ -531,6 +555,11 @@ func (s *storeImpl) UpsertMany(ctx context.Context, objs []*storage.ProcessBasel
 // Count returns the number of objects in the store
 func (s *storeImpl) Count(ctx context.Context) (int, error) {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.Count, "ProcessBaseline")
+
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_ACCESS).Resource(resources.ProcessBaseline)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil || !ok {
+		return 0, err
+	}
 
 	row := s.db.QueryRow(ctx, countStmt)
 	var count int
@@ -544,6 +573,13 @@ func (s *storeImpl) Count(ctx context.Context) (int, error) {
 func (s *storeImpl) Exists(ctx context.Context, id string) (bool, error) {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.Exists, "ProcessBaseline")
 
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_ACCESS).Resource(resources.ProcessBaseline)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return false, err
+	} else if !ok {
+		return false, nil
+	}
+
 	row := s.db.QueryRow(ctx, existsStmt, id)
 	var exists bool
 	if err := row.Scan(&exists); err != nil {
@@ -555,6 +591,13 @@ func (s *storeImpl) Exists(ctx context.Context, id string) (bool, error) {
 // Get returns the object, if it exists from the store
 func (s *storeImpl) Get(ctx context.Context, id string) (*storage.ProcessBaseline, bool, error) {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.Get, "ProcessBaseline")
+
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_ACCESS).Resource(resources.ProcessBaseline)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return nil, false, err
+	} else if !ok {
+		return nil, false, nil
+	}
 
 	conn, release := s.acquireConn(ctx, ops.Get, "ProcessBaseline")
 	defer release()
@@ -585,6 +628,13 @@ func (s *storeImpl) acquireConn(ctx context.Context, op ops.Op, typ string) (*pg
 func (s *storeImpl) Delete(ctx context.Context, id string) error {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.Remove, "ProcessBaseline")
 
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_WRITE_ACCESS).Resource(resources.ProcessBaseline)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return err
+	} else if !ok {
+		return sac.ErrResourceAccessDenied
+	}
+
 	conn, release := s.acquireConn(ctx, ops.Remove, "ProcessBaseline")
 	defer release()
 
@@ -597,6 +647,13 @@ func (s *storeImpl) Delete(ctx context.Context, id string) error {
 // GetIDs returns all the IDs for the store
 func (s *storeImpl) GetIDs(ctx context.Context) ([]string, error) {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.GetAll, "storage.ProcessBaselineIDs")
+
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_ACCESS).Resource(resources.ProcessBaseline)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, nil
+	}
 
 	rows, err := s.db.Query(ctx, getIDsStmt)
 	if err != nil {
@@ -617,6 +674,13 @@ func (s *storeImpl) GetIDs(ctx context.Context) ([]string, error) {
 // GetMany returns the objects specified by the IDs or the index in the missing indices slice
 func (s *storeImpl) GetMany(ctx context.Context, ids []string) ([]*storage.ProcessBaseline, []int, error) {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.GetMany, "ProcessBaseline")
+
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_ACCESS).Resource(resources.ProcessBaseline)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return nil, nil, err
+	} else if !ok {
+		return nil, nil, nil
+	}
 
 	conn, release := s.acquireConn(ctx, ops.GetMany, "ProcessBaseline")
 	defer release()
@@ -663,6 +727,13 @@ func (s *storeImpl) GetMany(ctx context.Context, ids []string) ([]*storage.Proce
 func (s *storeImpl) DeleteMany(ctx context.Context, ids []string) error {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.RemoveMany, "ProcessBaseline")
 
+	scopeChecker := sac.GlobalAccessScopeChecker(ctx).AccessMode(storage.Access_READ_WRITE_ACCESS).Resource(resources.ProcessBaseline)
+	if ok, err := scopeChecker.Allowed(ctx); err != nil {
+		return err
+	} else if !ok {
+		return sac.ErrResourceAccessDenied
+	}
+
 	conn, release := s.acquireConn(ctx, ops.RemoveMany, "ProcessBaseline")
 	defer release()
 	if _, err := conn.Exec(ctx, deleteManyStmt, ids); err != nil {
@@ -694,7 +765,11 @@ func (s *storeImpl) Walk(ctx context.Context, fn func(obj *storage.ProcessBaseli
 	return nil
 }
 
+//endregion
+
 //// Used for testing
+
+//region DropTable
 
 func dropTableProcessbaselines(ctx context.Context, db *pgxpool.Pool) {
 	_, _ = db.Exec(ctx, "DROP TABLE IF EXISTS processbaselines CASCADE")
@@ -712,6 +787,8 @@ func dropTableProcessbaselinesElementGraveyard(ctx context.Context, db *pgxpool.
 	_, _ = db.Exec(ctx, "DROP TABLE IF EXISTS processbaselines_ElementGraveyard CASCADE")
 
 }
+
+//endregion
 
 func Destroy(ctx context.Context, db *pgxpool.Pool) {
 	dropTableProcessbaselines(ctx, db)
