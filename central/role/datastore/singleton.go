@@ -6,8 +6,11 @@ import (
 	"github.com/stackrox/rox/central/globaldb"
 	rolePkg "github.com/stackrox/rox/central/role"
 	"github.com/stackrox/rox/central/role/resources"
-	permissionSetStore "github.com/stackrox/rox/central/role/store/permissionset/rocksdb"
+	PermissionSetPGStore "github.com/stackrox/rox/central/role/store/permissionset/postgres"
+	permissionSetPGStore "github.com/stackrox/rox/central/role/store/permissionset/rocksdb"
+	postgresRolePGStore "github.com/stackrox/rox/central/role/store/role/postgres"
 	roleStore "github.com/stackrox/rox/central/role/store/role/rocksdb"
+	postgresSimpleAccessScopeStore "github.com/stackrox/rox/central/role/store/simpleaccessscope/postgres"
 	simpleAccessScopeStore "github.com/stackrox/rox/central/role/store/simpleaccessscope/rocksdb"
 	"github.com/stackrox/rox/generated/storage"
 	"github.com/stackrox/rox/pkg/auth/permissions"
@@ -25,22 +28,24 @@ var (
 // Singleton returns the singleton providing access to the roles store.
 func Singleton() DataStore {
 	once.Do(func() {
-		roleStorage, err := roleStore.New(globaldb.GetRocksDB())
-		utils.CrashOnError(err)
-		permissionSetStorage, err := permissionSetStore.New(globaldb.GetRocksDB())
-		utils.CrashOnError(err)
-		accessScopeStorage, err := simpleAccessScopeStore.New(globaldb.GetRocksDB())
-		utils.CrashOnError(err)
-
+		var roleStorage roleStore.Store
+		var permissionSetStorage permissionSetPGStore.Store
+		var accessScopeStorage simpleAccessScopeStore.Store
+		if features.PostgresDatastore.Enabled() {
+			roleStorage = postgresRolePGStore.New(context.TODO(), globaldb.GetPostgres())
+			permissionSetStorage = PermissionSetPGStore.New(context.TODO(), globaldb.GetPostgres())
+			accessScopeStorage = postgresSimpleAccessScopeStore.New(context.TODO(), globaldb.GetPostgres())
+		} else {
+			var err error
+			roleStorage, err = roleStore.New(globaldb.GetRocksDB())
+			utils.CrashOnError(err)
+			permissionSetStorage, err = permissionSetPGStore.New(globaldb.GetRocksDB())
+			utils.CrashOnError(err)
+			accessScopeStorage, err = simpleAccessScopeStore.New(globaldb.GetRocksDB())
+			utils.CrashOnError(err)
+		}
 		// Which role format is used is determined solely by the feature flag.
 		ds = New(roleStorage, permissionSetStorage, accessScopeStorage)
-
-		// extend default roles if vuln risk management feature flag is enabled
-		if features.VulnRiskManagement.Enabled() {
-			for r, a := range vulnRiskManagementDefaultRoles {
-				defaultRoles[r] = a
-			}
-		}
 
 		if features.VulnReporting.Enabled() {
 			for r, a := range vulnReportingDefaultRoles {
@@ -109,9 +114,6 @@ var defaultRoles = map[string]roleAttributes{
 			permissions.Modify(resources.ServiceIdentity),
 		},
 	},
-}
-
-var vulnRiskManagementDefaultRoles = map[string]roleAttributes{
 	rolePkg.VulnMgmtApprover: {
 		idSuffix:    "vulnmgmtapprover",
 		description: "For users: use it to provide access to approve vulnerability deferrals or false positive requests",

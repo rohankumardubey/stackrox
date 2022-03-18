@@ -6,13 +6,18 @@ Please avoid adding duplicate information across this changelog and JIRA/doc inp
 
 ## [NEXT RELEASE]
 
+- The default Admission Controller "fail open" timeout has been changed from 3 seconds to 20 seconds in Helm templates.
+- The maximum Admission Controller "fail open" timeout has been set at 25 seconds in Helm template verification performed by the Operator.
+  - This change is *not* backwards compatible; if an existing Custom Resource sets the value to > 25 seconds, then it will fail validation in case operator is downgraded. This change is accepted because the operator is still in v1alpha1 and subject to change.
+- The admission webhook timeout is now set to the admission controller timeout plus 2 seconds.
+
 ## [69.0]
 
 - `collector` image with `-slim` in the image tag is no longer published (`collector-slim` with suffix in the image name will continue to be published).
 - `collector-rhel`, `main-rhel`, `scanner-rhel`, and `scanner-db-rhel` images are not published any more. These images were identical to non-rhel ones since version 3.66.
 - Increased default Scanner memory limit from 3000 MiB to 4GiB.
 - API changes/deprecations:
-  - `GetKernelSupportAvailable (GET /v1/clusters-env/kernel-support-available)` is deprecated, use `GetClusterDefaults (GET /v1/cluster-defaults)` instead.
+  - `GetKernelSupportAvailable (GET /v1/clusters-env/kernel-support-available)` is deprecated, use `GetClusterDefaultValues (GET /v1/cluster-defaults)` instead.
   - The following features have been deprecated and will be removed in version 3.71.0:
     - The external authorization plugin for scoped access control will be removed. Please use the existing in-product scoped access control.
     - The Anchore, Tenable, and Docker Trusted Registry integrations will be removed. Please use the ACS Scanner instead as it is more widely supported.

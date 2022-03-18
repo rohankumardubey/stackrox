@@ -16,6 +16,7 @@ import (
 	"github.com/stackrox/rox/pkg/search/postgres/mapping"
 	pgsearch "github.com/stackrox/rox/pkg/search/postgres/query"
 	"github.com/stackrox/rox/pkg/set"
+	"github.com/stackrox/rox/pkg/stringutils"
 )
 
 var (
@@ -29,7 +30,6 @@ type QueryType int
 const (
 	GET QueryType = iota
 	COUNT
-	VALUE
 	DELETE
 )
 
@@ -46,7 +46,7 @@ func replaceVars(s string) string {
 
 type selectQuery struct {
 	Query  string
-	Fields []*searchPkg.Field
+	Fields []pgsearch.SelectQueryField
 }
 
 type query struct {
@@ -58,7 +58,7 @@ type query struct {
 }
 
 func (q *query) String() string {
-	query := q.Select.Query + " " + q.From
+	query := q.Select.Query + " from " + q.From
 	if q.Where != "" {
 		query += " where " + q.Where
 	}
@@ -68,7 +68,11 @@ func (q *query) String() string {
 	return query
 }
 
-func getPaginationQuery(pagination *v1.QueryPagination, schema *walker.Schema, optionsMap searchPkg.OptionsMap) (string, error) {
+func qualifyColumn(table, column string) string {
+	return table + "." + column
+}
+
+func getPaginationQuery(pagination *v1.QueryPagination, schema *walker.Schema, queryFields map[string]*walker.Field) (string, error) {
 	if pagination == nil {
 		return "", nil
 	}
@@ -79,11 +83,14 @@ func getPaginationQuery(pagination *v1.QueryPagination, schema *walker.Schema, o
 		if so.GetReversed() {
 			direction = "desc"
 		}
-		dbField := schema.FieldsBySearchLabel()[so.GetField()]
+		dbField := queryFields[so.GetField()]
 		if dbField == nil {
-			return "", errors.Errorf("field %s does not exist in table %s", so.GetField(), schema.Table)
+			return "", errors.Errorf("field %s does not exist in table %s or connected tables", so.GetField(), schema.Table)
 		}
-		orderByClauses = append(orderByClauses, dbField.ColumnName+" "+direction)
+		orderByClauses = append(
+			orderByClauses,
+			fmt.Sprintf("%s %s", qualifyColumn(dbField.Schema.Table, dbField.ColumnName), direction),
+		)
 	}
 	var orderBy string
 	if len(orderByClauses) != 0 {
@@ -96,97 +103,7 @@ func getPaginationQuery(pagination *v1.QueryPagination, schema *walker.Schema, o
 	return orderBy, nil
 }
 
-func generateSelectFieldsRecursive(schema *walker.Schema, added set.StringSet, q *v1.Query, optionsMap searchPkg.OptionsMap) ([]string, []*searchPkg.Field) {
-	switch sub := q.GetQuery().(type) {
-	case *v1.Query_BaseQuery:
-		switch subBQ := q.GetBaseQuery().Query.(type) {
-		case *v1.BaseQuery_DocIdQuery:
-			// nothing to do here
-		case *v1.BaseQuery_MatchFieldQuery:
-			// Need to find base value
-			field, ok := optionsMap.Get(subBQ.MatchFieldQuery.GetField())
-			if !ok {
-				return nil, nil
-			}
-			if subBQ.MatchFieldQuery.Highlight && added.Add(field.FieldPath) {
-				dbField := schema.FieldsBySearchLabel()[subBQ.MatchFieldQuery.GetField()]
-				if dbField == nil {
-					log.Errorf("Missing field %s in table %s", subBQ.MatchFieldQuery.GetField(), schema.Table)
-					return nil, nil
-				}
-				return []string{dbField.ColumnName}, []*searchPkg.Field{field}
-			}
-		case *v1.BaseQuery_MatchNoneQuery:
-			// nothing to here either
-		case *v1.BaseQuery_MatchLinkedFieldsQuery:
-			// Need to split this
-			var (
-				paths  []string
-				fields []*searchPkg.Field
-			)
-			for _, q := range subBQ.MatchLinkedFieldsQuery.Query {
-				field, ok := optionsMap.Get(q.GetField())
-				if !ok {
-					return nil, nil
-				}
-				dbField := schema.FieldsBySearchLabel()[q.GetField()]
-				if dbField == nil {
-					log.Errorf("Missing field %s in table %s", q.GetField(), schema.Table)
-					return nil, nil
-				}
-
-				if q.Highlight && added.Add(field.FieldPath) {
-					paths = append(paths, dbField.ColumnName)
-					fields = append(fields, field)
-				}
-			}
-			return paths, fields
-		default:
-			panic("unsupported")
-		}
-	case *v1.Query_Conjunction:
-		var (
-			paths  []string
-			fields []*searchPkg.Field
-		)
-		for _, cq := range sub.Conjunction.Queries {
-			localPaths, localFields := generateSelectFieldsRecursive(schema, added, cq, optionsMap)
-			paths = append(paths, localPaths...)
-			fields = append(fields, localFields...)
-		}
-		return paths, fields
-	case *v1.Query_Disjunction:
-		var (
-			paths  []string
-			fields []*searchPkg.Field
-		)
-		for _, dq := range sub.Disjunction.Queries {
-			localPaths, localFields := generateSelectFieldsRecursive(schema, added, dq, optionsMap)
-			paths = append(paths, localPaths...)
-			fields = append(fields, localFields...)
-		}
-		return paths, fields
-	case *v1.Query_BooleanQuery:
-		var (
-			paths  []string
-			fields []*searchPkg.Field
-		)
-		for _, cq := range sub.BooleanQuery.Must.Queries {
-			localPaths, localFields := generateSelectFieldsRecursive(schema, added, cq, optionsMap)
-			paths = append(paths, localPaths...)
-			fields = append(fields, localFields...)
-		}
-		for _, dq := range sub.BooleanQuery.MustNot.Queries {
-			localPaths, localFields := generateSelectFieldsRecursive(schema, added, dq, optionsMap)
-			paths = append(paths, localPaths...)
-			fields = append(fields, localFields...)
-		}
-		return paths, fields
-	}
-	return nil, nil
-}
-
-func generateSelectFields(schema *walker.Schema, q *v1.Query, optionsMap searchPkg.OptionsMap, selectType QueryType) selectQuery {
+func generateSelectFields(entry *pgsearch.QueryEntry, primaryKeys []walker.Field, selectType QueryType) selectQuery {
 	var sel selectQuery
 	if selectType == DELETE {
 		sel.Query = "delete"
@@ -197,58 +114,65 @@ func generateSelectFields(schema *walker.Schema, q *v1.Query, optionsMap searchP
 		sel.Query = "select count(*)"
 		return sel
 	}
-	added := set.NewStringSet()
-	paths, fields := generateSelectFieldsRecursive(schema, added, q, optionsMap)
+	var pathsInSelectClause []string
+	// Always select the primary keys first.
+	for _, pk := range primaryKeys {
+		pathsInSelectClause = append(pathsInSelectClause, qualifyColumn(pk.Schema.Table, pk.ColumnName))
+	}
 
-	var values []string
-	for _, pk := range schema.LocalPrimaryKeys() {
-		values = append(values, pk.ColumnName)
-	}
-	if len(values) > 1 {
-		values = []string{
-			fmt.Sprintf("distinct(%s)", strings.Join(values, ", ")),
+	if entry != nil {
+		for _, selectedField := range entry.SelectedFields {
+			pathsInSelectClause = append(pathsInSelectClause, selectedField.SelectPath)
 		}
+		sel.Fields = entry.SelectedFields
 	}
-	if selectType == VALUE {
-		paths = append(values, "serialized")
-	} else {
-		paths = append(values, paths...)
-	}
-	sel.Query = fmt.Sprintf("select %s", strings.Join(paths, ","))
-	sel.Fields = fields
+
+	sel.Query = fmt.Sprintf("select %s", strings.Join(pathsInSelectClause, ","))
 	return sel
 }
 
 func populatePath(q *v1.Query, optionsMap searchPkg.OptionsMap, schema *walker.Schema, selectType QueryType) (*query, error) {
-	fromClause := fmt.Sprintf("from %s", schema.Table)
+	// Field can belong to multiple tables. Therefore, find all the tables reachable from starting table, that contain
+	// query fields.
+	dbFields := getTableFieldsForQuery(schema, q)
+	tables := make([]*walker.Schema, 0, len(dbFields))
+	for _, f := range dbFields {
+		tables = append(tables, f.Schema)
+	}
+	froms, joinsMap := getJoins(schema, tables...)
 
-	selQuery := generateSelectFields(schema, q, optionsMap, selectType)
-	queryEntry, err := compileBaseQuery(schema, q, optionsMap)
+	queryEntry, err := compileQueryToPostgres(schema, q, optionsMap, dbFields, joinsMap)
 	if err != nil {
 		return nil, err
 	}
-	pagination, err := getPaginationQuery(q.Pagination, schema, optionsMap)
+	// If a non-empty query was passed, but we couldn't find a query, that means that the query is invalid
+	// for this category. (For example, searching secrets by "Policy:"). In this case, we return a query that matches nothing.
+	// This behaviour is helpful, for example, in Global Search, where a query that is invalid for a
+	// certain category will just return no elements of that category.
+	if q.GetQuery() != nil && queryEntry == nil {
+		return nil, nil
+	}
+
+	fromClause := stringutils.JoinNonEmpty(", ", froms...)
+	selQuery := generateSelectFields(queryEntry, schema.LocalPrimaryKeys(), selectType)
+	pagination, err := getPaginationQuery(q.Pagination, schema, dbFields)
 	if err != nil {
 		return nil, err
 	}
-	if queryEntry == nil {
-		return &query{
-			Select:     selQuery,
-			From:       fromClause,
-			Pagination: pagination,
-		}, nil
-	}
 
-	return &query{
+	query := &query{
 		Select:     selQuery,
 		From:       fromClause,
-		Where:      queryEntry.Query,
 		Pagination: pagination,
-		Data:       queryEntry.Values,
-	}, nil
+	}
+	if queryEntry != nil {
+		query.Where = queryEntry.Where.Query
+		query.Data = queryEntry.Where.Values
+	}
+	return query, nil
 }
 
-func multiQueryFromQueryEntries(entries []*pgsearch.QueryEntry, separator string) *pgsearch.QueryEntry {
+func combineQueryEntries(entries []*pgsearch.QueryEntry, separator string) *pgsearch.QueryEntry {
 	if len(entries) == 0 {
 		return nil
 	}
@@ -256,21 +180,31 @@ func multiQueryFromQueryEntries(entries []*pgsearch.QueryEntry, separator string
 		return entries[0]
 	}
 	var queryStrings []string
-	var data []interface{}
+	seenSelectFields := set.NewStringSet()
+	newQE := &pgsearch.QueryEntry{}
 	for _, entry := range entries {
-		queryStrings = append(queryStrings, entry.Query)
-		data = append(data, entry.Values...)
+		queryStrings = append(queryStrings, entry.Where.Query)
+		newQE.Where.Values = append(newQE.Where.Values, entry.Where.Values...)
+		for _, selectedField := range entry.SelectedFields {
+			if seenSelectFields.Add(selectedField.SelectPath) {
+				newQE.SelectedFields = append(newQE.SelectedFields, selectedField)
+			}
+		}
 	}
-	return &pgsearch.QueryEntry{
-		Query:  fmt.Sprintf("(%s)", strings.Join(queryStrings, separator)),
-		Values: data,
-	}
+	newQE.Where.Query = fmt.Sprintf("(%s)", strings.Join(queryStrings, separator))
+	return newQE
 }
 
-func entriesFromQueries(table *walker.Schema, queries []*v1.Query, optionsMap searchPkg.OptionsMap) ([]*pgsearch.QueryEntry, error) {
+func entriesFromQueries(
+	table *walker.Schema,
+	queries []*v1.Query,
+	optionsMap searchPkg.OptionsMap,
+	queryFields map[string]*walker.Field,
+	joinMap map[string]string,
+) ([]*pgsearch.QueryEntry, error) {
 	var entries []*pgsearch.QueryEntry
 	for _, q := range queries {
-		entry, err := compileBaseQuery(table, q, optionsMap)
+		entry, err := compileQueryToPostgres(table, q, optionsMap, queryFields, joinMap)
 		if err != nil {
 			return nil, err
 		}
@@ -282,68 +216,172 @@ func entriesFromQueries(table *walker.Schema, queries []*v1.Query, optionsMap se
 	return entries, nil
 }
 
-func compileBaseQuery(schema *walker.Schema, q *v1.Query, optionsMap searchPkg.OptionsMap) (*pgsearch.QueryEntry, error) {
+func collectFields(q *v1.Query) set.StringSet {
+	var queries []*v1.Query
+	collectedFields := set.NewStringSet()
+	switch sub := q.GetQuery().(type) {
+	case *v1.Query_BaseQuery:
+		switch subBQ := q.GetBaseQuery().Query.(type) {
+		case *v1.BaseQuery_DocIdQuery, *v1.BaseQuery_MatchNoneQuery:
+			// nothing to do
+		case *v1.BaseQuery_MatchFieldQuery:
+			collectedFields.Add(subBQ.MatchFieldQuery.GetField())
+		case *v1.BaseQuery_MatchLinkedFieldsQuery:
+			for _, q := range subBQ.MatchLinkedFieldsQuery.Query {
+				collectedFields.Add(q.GetField())
+			}
+		default:
+			panic("unsupported")
+		}
+	case *v1.Query_Conjunction:
+		queries = append(queries, sub.Conjunction.Queries...)
+	case *v1.Query_Disjunction:
+		queries = append(queries, sub.Disjunction.Queries...)
+	case *v1.Query_BooleanQuery:
+		queries = append(queries, sub.BooleanQuery.Must.Queries...)
+		queries = append(queries, sub.BooleanQuery.MustNot.Queries...)
+	}
+
+	for _, query := range queries {
+		collectedFields.AddAll(collectFields(query).AsSlice()...)
+	}
+	for _, sortOption := range q.GetPagination().GetSortOptions() {
+		collectedFields.Add(sortOption.GetField())
+	}
+	return collectedFields
+}
+
+func getTableFieldsForQuery(schema *walker.Schema, q *v1.Query) map[string]*walker.Field {
+	return getDBFieldsForSearchFields(schema, collectFields(q))
+}
+
+func getDBFieldsForSearchFields(schema *walker.Schema, searchFields set.StringSet) map[string]*walker.Field {
+	reachableFields := make(map[string]*walker.Field)
+	recursiveSearchForFields([]*walker.Schema{schema}, searchFields, reachableFields, set.NewStringSet())
+	return reachableFields
+}
+
+func recursiveSearchForFields(schemaQ []*walker.Schema, searchFields set.StringSet, reachableFields map[string]*walker.Field, visitedTables set.StringSet) {
+	if len(schemaQ) == 0 || len(searchFields) == 0 {
+		return
+	}
+
+	curr, schemaQ := schemaQ[0], schemaQ[1:]
+	if !visitedTables.Add(curr.Table) {
+		return
+	}
+
+	for _, f := range curr.Fields {
+		field := f
+		if searchFields.Remove(f.Search.FieldName) {
+			reachableFields[f.Search.FieldName] = &field
+		}
+	}
+
+	if len(searchFields) == 0 {
+		return
+	}
+	if len(curr.Parents) == 0 && len(curr.Children) == 0 {
+		return
+	}
+
+	// We want to traverse shortest length from current schema to find the tables containing the getDBFieldsForSearchFields fields.
+	// Therefore, perform BFS.
+	schemaQ = append(schemaQ, curr.Parents...)
+	schemaQ = append(schemaQ, curr.Children...)
+	recursiveSearchForFields(schemaQ, searchFields, reachableFields, visitedTables)
+}
+
+func withJoinClause(queryEntry *pgsearch.QueryEntry, dbField *walker.Field, joinMap map[string]string) {
+	if queryEntry == nil {
+		return
+	}
+	queryEntry.Where.Query = fmt.Sprintf("(%s)", stringutils.JoinNonEmpty(" and ", queryEntry.Where.Query, joinMap[dbField.Schema.Table]))
+}
+
+func compileQueryToPostgres(
+	schema *walker.Schema,
+	q *v1.Query,
+	optionsMap searchPkg.OptionsMap,
+	queryFields map[string]*walker.Field,
+	joinMap map[string]string,
+) (*pgsearch.QueryEntry, error) {
+
 	switch sub := q.GetQuery().(type) {
 	case *v1.Query_BaseQuery:
 		switch subBQ := q.GetBaseQuery().Query.(type) {
 		case *v1.BaseQuery_DocIdQuery:
-			return &pgsearch.QueryEntry{
+			// TODO: Tackle selection of children.
+			return &pgsearch.QueryEntry{Where: pgsearch.WhereClause{
 				Query:  fmt.Sprintf("%s.id = ANY($$::text[])", schema.Table),
 				Values: []interface{}{subBQ.DocIdQuery.GetIds()},
-			}, nil
+			}}, nil
 		case *v1.BaseQuery_MatchFieldQuery:
-			return pgsearch.MatchFieldQuery(schema, subBQ.MatchFieldQuery, optionsMap)
+			qe, err := pgsearch.MatchFieldQuery(
+				queryFields[subBQ.MatchFieldQuery.GetField()],
+				subBQ.MatchFieldQuery.GetValue(),
+				subBQ.MatchFieldQuery.GetHighlight(), optionsMap,
+			)
+			if err != nil {
+				return nil, err
+			}
+			withJoinClause(qe, queryFields[subBQ.MatchFieldQuery.GetField()], joinMap)
+			return qe, nil
 		case *v1.BaseQuery_MatchNoneQuery:
 			return nil, nil
 		case *v1.BaseQuery_MatchLinkedFieldsQuery:
 			var entries []*pgsearch.QueryEntry
 			for _, q := range subBQ.MatchLinkedFieldsQuery.Query {
-				qe, err := pgsearch.MatchFieldQuery(schema, q, optionsMap)
+				qe, err := pgsearch.MatchFieldQuery(queryFields[q.GetField()], q.GetValue(), q.GetHighlight(), optionsMap)
 				if err != nil {
 					return nil, err
 				}
 				if qe == nil {
 					continue
 				}
+
+				withJoinClause(qe, queryFields[q.GetField()], joinMap)
 				entries = append(entries, qe)
 			}
-			return multiQueryFromQueryEntries(entries, " and "), nil
+			return combineQueryEntries(entries, " and "), nil
 		default:
 			panic("unsupported")
 		}
 	case *v1.Query_Conjunction:
-		entries, err := entriesFromQueries(schema, sub.Conjunction.Queries, optionsMap)
+		entries, err := entriesFromQueries(schema, sub.Conjunction.Queries, optionsMap, queryFields, joinMap)
 		if err != nil {
 			return nil, err
 		}
-		return multiQueryFromQueryEntries(entries, " and "), nil
+		return combineQueryEntries(entries, " and "), nil
 	case *v1.Query_Disjunction:
-		entries, err := entriesFromQueries(schema, sub.Disjunction.Queries, optionsMap)
+		entries, err := entriesFromQueries(schema, sub.Disjunction.Queries, optionsMap, queryFields, joinMap)
 		if err != nil {
 			return nil, err
 		}
-		return multiQueryFromQueryEntries(entries, " or "), nil
+		return combineQueryEntries(entries, " or "), nil
 	case *v1.Query_BooleanQuery:
-		entries, err := entriesFromQueries(schema, sub.BooleanQuery.Must.Queries, optionsMap)
+		entries, err := entriesFromQueries(schema, sub.BooleanQuery.Must.Queries, optionsMap, queryFields, joinMap)
 		if err != nil {
 			return nil, err
 		}
-		cqe := multiQueryFromQueryEntries(entries, " and ")
+		cqe := combineQueryEntries(entries, " and ")
 		if cqe == nil {
 			cqe = pgsearch.NewTrueQuery()
 		}
 
-		entries, err = entriesFromQueries(schema, sub.BooleanQuery.MustNot.Queries, optionsMap)
+		entries, err = entriesFromQueries(schema, sub.BooleanQuery.MustNot.Queries, optionsMap, queryFields, joinMap)
 		if err != nil {
 			return nil, err
 		}
-		dqe := multiQueryFromQueryEntries(entries, " or ")
+		dqe := combineQueryEntries(entries, " or ")
 		if dqe == nil {
 			dqe = pgsearch.NewFalseQuery()
 		}
 		return &pgsearch.QueryEntry{
-			Query:  fmt.Sprintf("(%s and not (%s))", cqe.Query, dqe.Query),
-			Values: append(cqe.Values, dqe.Values...),
+			Where: pgsearch.WhereClause{
+				Query:  fmt.Sprintf("(%s and not (%s))", cqe.Where.Query, dqe.Where.Query),
+				Values: append(cqe.Where.Values, dqe.Where.Values...),
+			},
 		}, nil
 	}
 	return nil, nil
@@ -354,11 +392,31 @@ func valueFromStringPtrInterface(value interface{}) string {
 }
 
 // RunSearchRequest executes a request again the database
-func RunSearchRequest(category v1.SearchCategory, q *v1.Query, db *pgxpool.Pool, optionsMap searchPkg.OptionsMap) ([]searchPkg.Result, error) {
+func RunSearchRequest(category v1.SearchCategory, q *v1.Query, db *pgxpool.Pool, optionsMap searchPkg.OptionsMap) (searchResults []searchPkg.Result, err error) {
+	var query *query
+	// Add this to be safe and convert panics to errors,
+	// since we do a lot of casting and other operations that could potentially panic in this code.
+	// Panics are expected ONLY in the event of a programming error, all foreseeable errors are handled
+	// the usual way.
+	defer func() {
+		if r := recover(); r != nil {
+			if query != nil {
+				log.Errorf("Query issue: %s %+v: %v", query, query.Data, r)
+			} else {
+				log.Errorf("Unexpected error running search request: %v", r)
+			}
+			debug.PrintStack()
+			err = fmt.Errorf("unexpected error running search request: %v", r)
+		}
+	}()
 	schema := mapping.GetTableFromCategory(category)
-	query, err := populatePath(q, optionsMap, schema, GET)
+	query, err = populatePath(q, optionsMap, schema, GET)
 	if err != nil {
 		return nil, err
+	}
+	// A nil-query implies no results.
+	if query == nil {
+		return nil, nil
 	}
 
 	queryStr := query.String()
@@ -370,24 +428,37 @@ func RunSearchRequest(category v1.SearchCategory, q *v1.Query, db *pgxpool.Pool,
 	}
 	defer rows.Close()
 
-	var searchResults []searchPkg.Result
+	numPrimaryKeys := len(schema.LocalPrimaryKeys())
+	highlightedResults := make([]interface{}, len(query.Select.Fields)+numPrimaryKeys)
 
-	// only support fields for now
-	highlightedResults := make([]interface{}, len(query.Select.Fields)+len(schema.LocalPrimaryKeys()))
-	for i := range highlightedResults {
+	// Assumes that ids are strings.
+	for i := 0; i < numPrimaryKeys; i++ {
 		highlightedResults[i] = pointers.String("")
+	}
+	for i, field := range query.Select.Fields {
+		highlightedResults[i+numPrimaryKeys] = mustAllocForDataType(field.FieldType)
 	}
 	for rows.Next() {
 		if err := rows.Scan(highlightedResults...); err != nil {
 			return nil, err
 		}
+		idParts := make([]string, 0, numPrimaryKeys)
+		for i := 0; i < numPrimaryKeys; i++ {
+			idParts = append(idParts, valueFromStringPtrInterface(highlightedResults[i]))
+		}
 		result := searchPkg.Result{
-			ID: valueFromStringPtrInterface(highlightedResults[0]),
+			ID: strings.Join(idParts, "+"), // TODO: figure out what separator to use
 		}
 		if len(query.Select.Fields) > 0 {
 			result.Matches = make(map[string][]string)
 			for i, field := range query.Select.Fields {
-				result.Matches[field.FieldPath] = []string{valueFromStringPtrInterface(highlightedResults[i+1])}
+				returnedValue := highlightedResults[i+numPrimaryKeys]
+				if field.PostTransform != nil {
+					returnedValue = field.PostTransform(returnedValue)
+				}
+				if matches := mustPrintForDataType(field.FieldType, returnedValue); len(matches) > 0 {
+					result.Matches[field.FieldPath] = matches
+				}
 			}
 		}
 		searchResults = append(searchResults, result)

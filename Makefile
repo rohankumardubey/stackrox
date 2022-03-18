@@ -302,7 +302,12 @@ clean-proto-generated-srcs:
 .PHONY: generated-srcs
 generated-srcs: go-generated-srcs
 
-deps: go.mod
+deps: $(BASE_DIR)/go.sum tools/linters/go.sum tools/test/go.sum
+	@echo "+ $@"
+	@touch deps
+
+%/go.sum: %/go.mod
+	@cd $*
 	@echo "+ $@"
 	@$(eval GOMOCK_REFLECT_DIRS=`find . -type d -name 'gomock_reflect_*'`)
 	@test -z $(GOMOCK_REFLECT_DIRS) || { echo "Found leftover gomock directories. Please remove them and rerun make deps!"; echo $(GOMOCK_REFLECT_DIRS); exit 1; }
@@ -311,7 +316,7 @@ ifdef CI
 	@git diff --exit-code -- go.mod go.sum || { echo "go.mod/go.sum files were updated after running 'go mod tidy', run this command on your local machine and commit the results." ; exit 1 ; }
 	go mod verify
 endif
-	@touch deps
+	@touch $@
 
 .PHONY: clean-deps
 clean-deps:
@@ -530,7 +535,7 @@ $(CURDIR)/image/rhel/bundle.tar.gz:
 	/usr/bin/env DEBUG_BUILD="$(DEBUG_BUILD)" $(CURDIR)/image/rhel/create-bundle.sh $(CURDIR)/image stackrox-data:$(TAG) $(BUILD_IMAGE) $(CURDIR)/image/rhel
 
 .PHONY: docker-build-main-image
-docker-build-main-image: copy-binaries-to-image-dir docker-build-data-image $(CURDIR)/image/rhel/bundle.tar.gz
+docker-build-main-image: copy-binaries-to-image-dir docker-build-data-image $(CURDIR)/image/rhel/bundle.tar.gz central-db-image
 	docker build \
 		-t stackrox/main:$(TAG) \
 		--build-arg ROX_IMAGE_FLAVOR=$(ROX_IMAGE_FLAVOR) \
@@ -615,6 +620,22 @@ mock-grpc-server-image: mock-grpc-server-build clean-image
 	cp bin/linux/mock-grpc-server integration-tests/mock-grpc-server/image/bin/mock-grpc-server
 	docker build -t stackrox/grpc-server:$(TAG) integration-tests/mock-grpc-server/image
 	docker tag stackrox/grpc-server:$(TAG) quay.io/$(QUAY_REPO)/grpc-server:$(TAG)
+
+$(CURDIR)/image/postgres/bundle.tar.gz:
+	/usr/bin/env DEBUG_BUILD="$(DEBUG_BUILD)" $(CURDIR)/image/postgres/create-bundle.sh $(CURDIR)/image/postgres $(CURDIR)/image/postgres
+
+.PHONY: central-db-image
+central-db-image: $(CURDIR)/image/postgres/bundle.tar.gz
+	docker build \
+		-t stackrox/central-db:$(TAG) \
+		--build-arg ROX_IMAGE_FLAVOR=$(ROX_IMAGE_FLAVOR) \
+		--file image/postgres/Dockerfile \
+		image/postgres
+ifdef CI
+	docker tag stackrox/central-db:$(TAG) quay.io/$(QUAY_REPO)/central-db:$(TAG)
+endif
+	@echo "Built central-db image with tag $(TAG)"
+
 ###########
 ## Clean ##
 ###########
@@ -628,7 +649,7 @@ clean-image:
 	git clean -xf image/bin
 	git clean -xdf image/ui image/docs
 	git clean -xf integration-tests/mock-grpc-server/image/bin/mock-grpc-server
-	rm -f $(CURDIR)/image/rhel/bundle.tar.gz
+	rm -f $(CURDIR)/image/rhel/bundle.tar.gz $(CURDIR)/image/postgres/bundle.tar.gz
 	rm -rf $(CURDIR)/image/rhel/scripts
 
 .PHONY: tag

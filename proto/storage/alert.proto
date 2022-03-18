@@ -28,7 +28,7 @@ message Alert {
         }
         repeated Container      containers          = 11;
         map<string, string>     annotations         = 14;
-        bool                    inactive            = 15;
+        bool                    inactive            = 15 [(gogoproto.moretags) = 'search:"Inactive Deployment"'];
     }
 
     // Represents an alert on a kubernetes resource (configmaps, secrets, etc.)
@@ -99,7 +99,7 @@ message Alert {
     }
 
     string                    id                = 1 [(gogoproto.moretags) = 'sensorhash:"ignore" sql:"pk"']; // Internal use only
-    Policy                    policy            = 2;
+    Policy                    policy            = 2 [(gogoproto.moretags) = 'sql:"ignore_pk,ignore_unique"'];
     LifecycleStage            lifecycle_stage   = 3;
 
     oneof Entity {
@@ -120,7 +120,7 @@ message Alert {
 
     Enforcement               enforcement       = 6;
 
-    google.protobuf.Timestamp time              = 7 [(gogoproto.moretags) = "sensorhash:\"ignore\""];
+    google.protobuf.Timestamp time              = 7 [(gogoproto.moretags) = "sensorhash:\"ignore\""  "search:\"Violation Time\""];
     google.protobuf.Timestamp first_occurred    = 10 [(gogoproto.moretags) = "sensorhash:\"ignore\""];
 
     // The time at which the alert was resolved. Only set if ViolationState is RESOLVED.
