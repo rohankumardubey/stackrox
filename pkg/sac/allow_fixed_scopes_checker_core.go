@@ -63,11 +63,11 @@ func (c allowFixedScopesCheckerCore) EffectiveAccessScope(resource permissions.R
 		break
 	}
 	switch (*rootFirstKey).(type) {
-	case *AccessModeScopeKey:
+	case AccessModeScopeKey:
 		return c.getAccessModeEffectiveAccessScope(resource)
-	case *ResourceScopeKey:
+	case ResourceScopeKey:
 		return c.getResourceEffectiveAccessScope(resource)
-	case *ClusterScopeKey:
+	case ClusterScopeKey:
 		return c.getClusterEffectiveAccessScope()
 	}
 	return effectiveaccessscope.DenyAllEffectiveAccessScope(), nil

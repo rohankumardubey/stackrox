@@ -160,7 +160,9 @@ func (root *ScopeTree) Compactify() ScopeTreeCompacted {
 
 func FromClusterKeys(clusterIDs []string) *ScopeTree {
 	root := &ScopeTree{
-		State: Partial,
+		State:           Partial,
+		clusterIDToName: make(map[string]string, 0),
+		Clusters:        make(map[string]*clustersScopeSubTree, 0),
 	}
 	for _, clusterID := range clusterIDs {
 		root.clusterIDToName[clusterID] = clusterID
@@ -173,7 +175,9 @@ func FromClusterKeys(clusterIDs []string) *ScopeTree {
 
 func FromClusterAndNamespaceKeys(clusterIDs []string, namespaces []string) *ScopeTree {
 	root := &ScopeTree{
-		State: Partial,
+		State:           Partial,
+		clusterIDToName: make(map[string]string, 0),
+		Clusters:        make(map[string]*clustersScopeSubTree, 0),
 	}
 	namespaceSubTrees := make(map[string]*namespacesScopeSubTree, 0)
 	for _, namespace := range namespaces {
