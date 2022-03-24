@@ -158,6 +158,37 @@ func (root *ScopeTree) Compactify() ScopeTreeCompacted {
 	return compacted
 }
 
+func FromClusterKeys(clusterIDs []string) *ScopeTree {
+	root := &ScopeTree{
+		State: Partial,
+	}
+	for _, clusterID := range clusterIDs {
+		root.clusterIDToName[clusterID] = clusterID
+		root.Clusters[clusterID] = &clustersScopeSubTree{
+			State: Included,
+		}
+	}
+	return root
+}
+
+func FromClusterAndNamespaceKeys(clusterIDs []string, namespaces []string) *ScopeTree {
+	root := &ScopeTree{
+		State: Partial,
+	}
+	namespaceSubTrees := make(map[string]*namespacesScopeSubTree, 0)
+	for _, namespace := range namespaces {
+		namespaceSubTrees[namespace] = &namespacesScopeSubTree{State: Included}
+	}
+	for _, clusterID := range clusterIDs {
+		root.clusterIDToName[clusterID] = clusterID
+		root.Clusters[clusterID] = &clustersScopeSubTree{
+			State:      Partial,
+			Namespaces: namespaceSubTrees,
+		}
+	}
+	return root
+}
+
 // String yields a compacted one-line string representation.
 func (root *ScopeTree) String() string {
 	return root.Compactify().String()
