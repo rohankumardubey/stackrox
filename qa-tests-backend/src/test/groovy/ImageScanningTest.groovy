@@ -209,7 +209,7 @@ class ImageScanningTest extends BaseSpecification {
         "validate registry based image metadata"
         def imageDigest
         try {
-            withRetry(15, 2) {
+            withRetry(30, 2) {
                 imageDigest = ImageService.getImages().find { it.name == deployment.image }
                 assert imageDigest?.id
             }
@@ -719,7 +719,7 @@ class ImageScanningTest extends BaseSpecification {
 
     private static ImageOuterClass.Image expectDigestedImage(String imageName, String source) {
         def imageDigest
-        withRetry(15, 2) {
+        withRetry(30, 2) {
             imageDigest = ImageService.getImages().find { it.name == imageName }
             assert imageDigest?.id
         }
