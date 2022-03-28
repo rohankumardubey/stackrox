@@ -349,6 +349,12 @@ pr_has_label() {
     require_environment "GITHUB_TOKEN"
 
     local expected_label="$1"
+    get_pr_details | jq '([.labels | .[].name]  // []) | .[]' -r | grep -qx "${expected_label}"
+}
+
+get_pr_details() {
+    require_environment "GITHUB_TOKEN"
+
     local pull_request
     local org
     local repo
@@ -369,7 +375,7 @@ pr_has_label() {
     fi
 
     url="https://api.github.com/repos/${org}/${repo}/pulls/${pull_request}"
-    curl -sS -H "Authorization: token ${GITHUB_TOKEN}" "${url}" | jq '([.labels | .[].name]  // []) | .[]' -r | grep -qx "${expected_label}"
+    curl -sS -H "Authorization: token ${GITHUB_TOKEN}" "${url}"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
