@@ -2,8 +2,10 @@ package translation
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/hashicorp/go-multierror"
+	"github.com/pkg/errors"
 	"helm.sh/helm/v3/pkg/chartutil"
 	v1 "k8s.io/api/core/v1"
 )
@@ -16,7 +18,9 @@ type ValuesBuilder struct {
 
 // NewValuesBuilder creates and returns new ValuesBuilder instance.
 func NewValuesBuilder() ValuesBuilder {
-	return ValuesBuilder{}
+	return ValuesBuilder{
+		data: map[string]interface{}{},
+	}
 }
 
 // Build unwraps ValuesBuilder and returns contained map or error.
@@ -38,6 +42,29 @@ func (v *ValuesBuilder) getData() map[string]interface{} {
 		v.data = map[string]interface{}{}
 	}
 	return v.data
+}
+
+// SetPathValue sets a value into its path. It parses a path like "root.child" and creates the necessary child maps for it.
+// If the last element already existed it can't be overwritten and returns an error.
+func (v *ValuesBuilder) SetPathValue(path string, value interface{}) error {
+	return v.setValueByPath(v.data, strings.Split(path, "."), value)
+}
+
+func (v *ValuesBuilder) setValueByPath(data map[string]interface{}, path []string, value interface{}) error {
+	if len(path) == 1 {
+		data[path[0]] = value
+		return nil
+	}
+
+	if _, ok := data[path[0]].(map[string]interface{}); !ok {
+		if data[path[0]] == nil {
+			data[path[0]] = map[string]interface{}{}
+		} else {
+			return errors.New("Could not overwrite key")
+		}
+	}
+
+	return v.setValueByPath(data[path[0]].(map[string]interface{}), path[1:], value)
 }
 
 // SetError appends error(s) to ValuesBuilder errors collection and returns the same ValuesBuilder.

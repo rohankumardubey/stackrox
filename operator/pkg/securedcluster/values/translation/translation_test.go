@@ -143,6 +143,13 @@ func (s TranslationTestSuite) TestTranslate() {
 				"scanner": map[string]interface{}{
 					"disable": false,
 				},
+				"customize": map[string]interface{}{
+					"sensor": map[string]interface{}{
+						"envVars": map[string]interface{}{
+							"ROX_LOCAL_IMAGE_SCANNING_ENABLED": "true",
+						},
+					},
+				},
 			},
 		},
 		"local scanner autosense suppression": {
@@ -152,6 +159,9 @@ func (s TranslationTestSuite) TestTranslate() {
 					ObjectMeta: metav1.ObjectMeta{Namespace: "stackrox"},
 					Spec: platform.SecuredClusterSpec{
 						ClusterName: "test-cluster",
+						Scanner: &platform.LocalScannerComponentSpec{
+							ScannerComponent: platform.LocalScannerComponentDisabled.Pointer(),
+						},
 					},
 				},
 			},
@@ -196,6 +206,13 @@ func (s TranslationTestSuite) TestTranslate() {
 				},
 				"scanner": map[string]interface{}{
 					"disable": false,
+				},
+				"customize": map[string]interface{}{
+					"sensor": map[string]interface{}{
+						"envVars": map[string]interface{}{
+							"ROX_LOCAL_IMAGE_SCANNING_ENABLED": "true",
+						},
+					},
 				},
 			},
 		},
@@ -502,6 +519,11 @@ func (s TranslationTestSuite) TestTranslate() {
 							"value": "customize-env-var2-value",
 						},
 					},
+					"sensor": map[string]interface{}{
+						"envVars": map[string]interface{}{
+							"ROX_LOCAL_IMAGE_SCANNING_ENABLED": "true",
+						},
+					},
 				},
 				"collector": map[string]interface{}{
 					"collectionMethod":        "EBPF",
@@ -539,6 +561,10 @@ func (s TranslationTestSuite) TestTranslate() {
 			delete(got["meta"].(map[string]interface{}), "configFingerprintOverride")
 			if len(got["meta"].(map[string]interface{})) == 0 {
 				delete(got, "meta")
+			}
+
+			if !features.LocalImageScanning.Enabled() {
+				delete(wantAsValues, "scanner")
 			}
 
 			assert.Equal(t, wantAsValues, got)

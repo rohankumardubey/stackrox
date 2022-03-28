@@ -8,10 +8,27 @@ import (
 	ctrlClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// AutoSenseLocalScannerSupport detects whether the local scanner should be enabled or not.
+// AutoSenseResult represents the configurations which can be auto-sensed.
+type AutoSenseResult struct {
+	// DeployScannerResources indicates that Scanner resources should be deployed. If a Central instance is existing
+	// inside the same namespace the existing Scanner instance should be used.
+	DeployScannerResources bool
+	// EnableLocalImageScanning enables the local image scanning feature in Sensor. If this setting is disabled Sensor
+	// will not scan images locally.
+	EnableLocalImageScanning bool
+}
+
+var (
+	disabledAutoSenseResult = AutoSenseResult{
+		DeployScannerResources:   false,
+		EnableLocalImageScanning: false,
+	}
+)
+
+// AutoSenseLocalScannerConfig detects whether the local scanner should be deployed or not.
 // Takes into account the setting in provided SecuredCluster CR as well as the presence of a Central instance in the same namespace.
 // Modifies the provided SecuredCluster object to set a default Spec.Scanner if missing.
-func AutoSenseLocalScannerSupport(ctx context.Context, client ctrlClient.Client, s platform.SecuredCluster) (bool, error) {
+func AutoSenseLocalScannerConfig(ctx context.Context, client ctrlClient.Client, s platform.SecuredCluster) (AutoSenseResult, error) {
 	SetScannerDefaults(&s.Spec)
 	scannerComponent := *s.Spec.Scanner.ScannerComponent
 
@@ -19,14 +36,19 @@ func AutoSenseLocalScannerSupport(ctx context.Context, client ctrlClient.Client,
 	case platform.LocalScannerComponentAutoSense:
 		siblingCentralPresent, err := isSiblingCentralPresent(ctx, client, s.GetNamespace())
 		if err != nil {
-			return false, errors.Wrap(err, "detecting presence of a Central CR in the same namespace")
+			return disabledAutoSenseResult, errors.Wrap(err, "detecting presence of a Central CR in the same namespace")
 		}
-		return !siblingCentralPresent, nil
+
+		return AutoSenseResult{
+			// Only deploy scanner resource if Central is not available in the same namespace.
+			DeployScannerResources:   !siblingCentralPresent,
+			EnableLocalImageScanning: true,
+		}, nil
 	case platform.LocalScannerComponentDisabled:
-		return false, nil
+		return disabledAutoSenseResult, nil
 	}
 
-	return false, errors.Errorf("invalid spec.scanner.scannerComponent %q", scannerComponent)
+	return disabledAutoSenseResult, errors.Errorf("invalid spec.scanner.scannerComponent %q", scannerComponent)
 }
 
 func isSiblingCentralPresent(ctx context.Context, client ctrlClient.Client, namespace string) (bool, error) {
