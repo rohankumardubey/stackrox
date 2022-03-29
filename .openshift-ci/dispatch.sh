@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-SCRIPTS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
-source "$SCRIPTS_ROOT/scripts/ci/lib.sh"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
+source "$ROOT/scripts/ci/lib.sh"
 
 set -euo pipefail
 
@@ -27,10 +27,12 @@ fi
 ci_job="$1"
 shift
 
-if [[ "$ci_job" == "push-check" ]]; then
-    push_and_check_image "$@"
-fi
-
-# For ease of initial integration this function does not fail.
-echo "nothing to see here"
-exit 0
+case "$ci_job" in
+    gke-upgrade-test)
+        "$ROOT/.openshift-ci/gke_upgrade_test.py"
+        ;;
+    *)
+        # For ease of initial integration this function does not fail.
+        echo "nothing to see here"
+        exit 0
+esac
