@@ -41,7 +41,7 @@ ci_export() {
     local env_name="$1"
     local env_value="$2"
 
-    if ! is_OPENSHIFT_CI && command -v cci-export >/dev/null; then
+    if command -v cci-export >/dev/null; then
         cci-export "$env_name" "$env_value"
     else
         export "$env_name"="$env_value"
