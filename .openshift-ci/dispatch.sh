@@ -28,7 +28,7 @@ ci_job="$1"
 shift
 
 case "$ci_job" in
-    gke-upgrade-test)
+    gke-upgrade-tests)
         "$ROOT/.openshift-ci/gke_upgrade_test.py"
         ;;
     *)
