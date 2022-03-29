@@ -143,11 +143,9 @@ func (s TranslationTestSuite) TestTranslate() {
 				"scanner": map[string]interface{}{
 					"disable": false,
 				},
-				"customize": map[string]interface{}{
-					"sensor": map[string]interface{}{
-						"envVars": map[string]interface{}{
-							"ROX_LOCAL_IMAGE_SCANNING_ENABLED": "true",
-						},
+				"sensor": map[string]interface{}{
+					"localImageScanning": map[string]string{
+						"enabled": "true",
 					},
 				},
 			},
@@ -207,11 +205,9 @@ func (s TranslationTestSuite) TestTranslate() {
 				"scanner": map[string]interface{}{
 					"disable": false,
 				},
-				"customize": map[string]interface{}{
-					"sensor": map[string]interface{}{
-						"envVars": map[string]interface{}{
-							"ROX_LOCAL_IMAGE_SCANNING_ENABLED": "true",
-						},
+				"sensor": map[string]interface{}{
+					"localImageScanning": map[string]string{
+						"enabled": "true",
 					},
 				},
 			},
@@ -404,6 +400,9 @@ func (s TranslationTestSuite) TestTranslate() {
 							"operator": "Exists",
 						},
 					},
+					"localImageScanning": map[string]string{
+						"enabled": "true",
+					},
 				},
 				"admissionControl": map[string]interface{}{
 					"dynamic": map[string]interface{}{
@@ -517,11 +516,6 @@ func (s TranslationTestSuite) TestTranslate() {
 						},
 						"customize-env-var2": map[string]interface{}{
 							"value": "customize-env-var2-value",
-						},
-					},
-					"sensor": map[string]interface{}{
-						"envVars": map[string]interface{}{
-							"ROX_LOCAL_IMAGE_SCANNING_ENABLED": "true",
 						},
 					},
 				},

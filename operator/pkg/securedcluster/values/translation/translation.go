@@ -15,7 +15,6 @@ import (
 	platform "github.com/stackrox/rox/operator/apis/platform/v1alpha1"
 	"github.com/stackrox/rox/operator/pkg/securedcluster/scanner"
 	"github.com/stackrox/rox/operator/pkg/values/translation"
-	"github.com/stackrox/rox/pkg/env"
 	"github.com/stackrox/rox/pkg/features"
 	helmUtil "github.com/stackrox/rox/pkg/helm/util"
 	"github.com/stackrox/rox/pkg/pointers"
@@ -99,7 +98,7 @@ func (t Translator) translate(ctx context.Context, sc platform.SecuredCluster) (
 	}
 
 	if sc.Spec.Sensor != nil {
-		v.AddChild("sensor", t.getSensorValues(sc.Spec.Sensor))
+		v.AddChild("sensor", t.getSensorValues(sc.Spec.Sensor, scannerAutoSenseConfig))
 	}
 
 	if sc.Spec.AdmissionControl != nil {
@@ -121,11 +120,6 @@ func (t Translator) translate(ctx context.Context, sc platform.SecuredCluster) (
 	customize.AddAllFrom(translation.GetCustomize(sc.Spec.Customize))
 
 	v.AddChild("customize", &customize)
-
-	if scannerAutoSenseConfig.EnableLocalImageScanning {
-		v.SetPathValue(fmt.Sprintf("customize.sensor.envVars.%s", env.LocalImageScanningEnabled.EnvVar()), strconv.FormatBool(scannerAutoSenseConfig.EnableLocalImageScanning))
-	}
-
 	v.AddChild("meta", getMetaValues(sc))
 	v.AddAllFrom(translation.GetMisc(sc.Spec.Misc))
 
@@ -180,12 +174,16 @@ func (t Translator) checkInitBundleSecret(ctx context.Context, sc platform.Secur
 	return nil
 }
 
-func (t Translator) getSensorValues(sensor *platform.SensorComponentSpec) *translation.ValuesBuilder {
+func (t Translator) getSensorValues(sensor *platform.SensorComponentSpec, config scanner.AutoSenseResult) *translation.ValuesBuilder {
 	sv := translation.NewValuesBuilder()
 
 	sv.AddChild(translation.ResourcesKey, translation.GetResources(sensor.Resources))
 	sv.SetStringMap("nodeSelector", sensor.NodeSelector)
 	sv.AddAllFrom(translation.GetTolerations(translation.TolerationsKey, sensor.Tolerations))
+
+	if config.EnableLocalImageScanning {
+		sv.SetPathValue("localImageScanning.enabled", strconv.FormatBool(config.EnableLocalImageScanning))
+	}
 
 	return &sv
 }
