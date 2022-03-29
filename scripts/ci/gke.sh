@@ -22,6 +22,8 @@ provision_gke_cluster() {
 assign_env_variables() {
     info "Assigning environment variables for later steps"
 
+    ls -l /tmp/initial-bash.env
+
     if [[ "$#" -lt 1 ]]; then
         die "missing args. usage: assign_env_variables <cluster-id> [<num-nodes> <machine-type>]"
     fi
