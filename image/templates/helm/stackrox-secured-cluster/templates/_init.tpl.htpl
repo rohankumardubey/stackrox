@@ -282,7 +282,7 @@
   {{ $centralDeployment := dict }}
   {{ include "srox.safeLookup" (list $ $centralDeployment "apps/v1" "Deployment" $.Release.Namespace "central") }}
   {{ if $centralDeployment.result }}
-    {{ include "srox.note" (list $ "Detected Central running in the same namespace. Skipping deploying scanner, Sensor using existing Scanner instance.") }}
+    {{ include "srox.note" (list $ "Detected central running in the same namespace. Not deploying scanner from this chart and configuring sensor to use existing scanner instance, if any.") }}
   {{ $_ := set $._rox.sensor.localImageScanning "enabled" "true" }}
   {{ $_ := set $._rox.scanner "disable" true }}
   {{ end }}
