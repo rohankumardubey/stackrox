@@ -5,8 +5,9 @@ source "$ROOT/scripts/ci/lib.sh"
 
 set -euo pipefail
 
-# shellcheck disable=SC1090
-source /tmp/secret/stackrox-stackrox-*/credentials
+for cred in /tmp/secret/**/[A-Z]*; do
+    export "$(basename "$cred")"="$(cat "$cred")"
+done
 
 if pr_has_label "delay-tests"; then
     function hold() {
