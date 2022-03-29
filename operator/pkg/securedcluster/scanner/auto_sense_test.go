@@ -23,7 +23,8 @@ func TestAutoSenseLocalScannerSupportShouldBeEnabled(t *testing.T) {
 
 	config, err := AutoSenseLocalScannerConfig(context.Background(), client, securedCluster)
 	require.NoError(t, err)
-	assert.True(t, config.EnableLocalImageScanning && config.DeployScannerResources, "Expected Scanner to be enabled if Central is not present")
+	assert.True(t, config.EnableLocalImageScanning)
+	assert.True(t, config.DeployScannerResources)
 }
 
 func TestAutoSenseIsDisabledWithCentralPresentShouldBeDisabled(t *testing.T) {
@@ -52,5 +53,6 @@ func TestAutoSenseIsEnabledWithCentralInADifferentNamespace(t *testing.T) {
 
 	config, err := AutoSenseLocalScannerConfig(context.Background(), client, securedCluster)
 	require.NoError(t, err)
-	require.True(t, config.EnableLocalImageScanning && config.DeployScannerResources, "Expected Scanner to be enabled if Central is deployed in a different namespace")
+	require.True(t, config.DeployScannerResources)
+	require.True(t, config.EnableLocalImageScanning)
 }

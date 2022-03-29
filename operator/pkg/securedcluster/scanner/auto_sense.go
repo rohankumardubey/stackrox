@@ -25,7 +25,7 @@ var (
 	}
 )
 
-// AutoSenseLocalScannerConfig detects whether the local scanner should be deployed or not.
+// AutoSenseLocalScannerConfig detects whether the local scanner should be deployed and/or used by sensor.
 // Takes into account the setting in provided SecuredCluster CR as well as the presence of a Central instance in the same namespace.
 // Modifies the provided SecuredCluster object to set a default Spec.Scanner if missing.
 func AutoSenseLocalScannerConfig(ctx context.Context, client ctrlClient.Client, s platform.SecuredCluster) (AutoSenseResult, error) {
@@ -36,7 +36,7 @@ func AutoSenseLocalScannerConfig(ctx context.Context, client ctrlClient.Client, 
 	case platform.LocalScannerComponentAutoSense:
 		siblingCentralPresent, err := isSiblingCentralPresent(ctx, client, s.GetNamespace())
 		if err != nil {
-			return disabledAutoSenseResult, errors.Wrap(err, "detecting presence of a Central CR in the same namespace")
+			return AutoSenseResult{}, errors.Wrap(err, "detecting presence of a Central CR in the same namespace")
 		}
 
 		return AutoSenseResult{
@@ -45,10 +45,10 @@ func AutoSenseLocalScannerConfig(ctx context.Context, client ctrlClient.Client, 
 			EnableLocalImageScanning: true,
 		}, nil
 	case platform.LocalScannerComponentDisabled:
-		return disabledAutoSenseResult, nil
+		return AutoSenseResult{}, nil
 	}
 
-	return disabledAutoSenseResult, errors.Errorf("invalid spec.scanner.scannerComponent %q", scannerComponent)
+	return AutoSenseResult{}, errors.Errorf("invalid spec.scanner.scannerComponent %q", scannerComponent)
 }
 
 func isSiblingCentralPresent(ctx context.Context, client ctrlClient.Client, namespace string) (bool, error) {

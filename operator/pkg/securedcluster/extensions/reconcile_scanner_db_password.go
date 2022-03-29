@@ -30,12 +30,12 @@ func ReconcileLocalScannerDBPasswordExtension(client ctrlClient.Client) extensio
 }
 
 func reconcile(ctx context.Context, s *platform.SecuredCluster, client ctrlClient.Client, _ func(updateStatusFunc), _ logr.Logger) error {
-	// Disable scanner db reconciler if feature flag is not enabled
+	// Disable scanner db reconciler if feature flag is not config
 	if !features.LocalImageScanning.Enabled() {
 		return nil
 	}
 
-	enabled, err := scanner.AutoSenseLocalScannerConfig(ctx, client, *s)
+	config, err := scanner.AutoSenseLocalScannerConfig(ctx, client, *s)
 	if err != nil {
 		return err
 	}
@@ -43,7 +43,7 @@ func reconcile(ctx context.Context, s *platform.SecuredCluster, client ctrlClien
 	// Only reconcile password if resources are deployed with the SecuredCluster.
 	securedClusterWithScanner := &securedClusterWithScannerBearer{
 		SecuredCluster: s,
-		scannerEnabled: enabled.DeployScannerResources,
+		scannerEnabled: config.DeployScannerResources,
 	}
 	return commonExtensions.ReconcileScannerDBPassword(ctx, securedClusterWithScanner, client)
 }

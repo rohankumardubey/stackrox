@@ -115,7 +115,7 @@ func (t Translator) translate(ctx context.Context, sc platform.SecuredCluster) (
 	}
 
 	if features.LocalImageScanning.Enabled() {
-		v.AddChild("scanner", t.getLocalScannerComponentValues(ctx, sc))
+		v.AddChild("scanner", t.getLocalScannerComponentValues(sc, scannerAutoSenseConfig))
 	}
 
 	customize.AddAllFrom(translation.GetCustomize(sc.Spec.Customize))
@@ -123,10 +123,7 @@ func (t Translator) translate(ctx context.Context, sc platform.SecuredCluster) (
 	v.AddChild("customize", &customize)
 
 	if scannerAutoSenseConfig.EnableLocalImageScanning {
-		err = v.SetPathValue(fmt.Sprintf("customize.sensor.envVars.%s", env.LocalImageScanningEnabled.EnvVar()), strconv.FormatBool(scannerAutoSenseConfig.EnableLocalImageScanning))
-		if err != nil {
-			v.SetError(err)
-		}
+		v.SetPathValue(fmt.Sprintf("customize.sensor.envVars.%s", env.LocalImageScanningEnabled.EnvVar()), strconv.FormatBool(scannerAutoSenseConfig.EnableLocalImageScanning))
 	}
 
 	v.AddChild("meta", getMetaValues(sc))
@@ -319,16 +316,11 @@ func (t Translator) getComplianceContainerValues(compliance *platform.ContainerS
 	return &cv
 }
 
-func (t Translator) getLocalScannerComponentValues(ctx context.Context, securedCluster platform.SecuredCluster) *translation.ValuesBuilder {
+func (t Translator) getLocalScannerComponentValues(securedCluster platform.SecuredCluster, config scanner.AutoSenseResult) *translation.ValuesBuilder {
 	sv := translation.NewValuesBuilder()
 	s := securedCluster.Spec.Scanner
 
-	config, err := scanner.AutoSenseLocalScannerConfig(ctx, t.client, securedCluster)
-	if err != nil {
-		sv.SetError(err)
-	} else {
-		sv.SetBoolValue("disable", !config.DeployScannerResources)
-	}
+	sv.SetBoolValue("disable", !config.DeployScannerResources)
 
 	translation.SetScannerAnalyzerValues(&sv, s.Analyzer)
 	translation.SetScannerDBValues(&sv, s.DB)
