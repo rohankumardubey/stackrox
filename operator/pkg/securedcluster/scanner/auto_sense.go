@@ -10,7 +10,7 @@ import (
 
 // AutoSenseResult represents the configurations which can be auto-sensed.
 type AutoSenseResult struct {
-	// DeployScannerResources indicates that Scanner resources should be deployed. If a Central instance is existing
+	// DeployScannerResources indicates that Scanner resources should be deployed by the SecuredCluster controller.
 	// inside the same namespace the existing Scanner instance should be used.
 	DeployScannerResources bool
 	// EnableLocalImageScanning enables the local image scanning feature in Sensor. If this setting is disabled Sensor
