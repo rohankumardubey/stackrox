@@ -97,9 +97,7 @@ func (t Translator) translate(ctx context.Context, sc platform.SecuredCluster) (
 		return nil, err
 	}
 
-	if sc.Spec.Sensor != nil {
-		v.AddChild("sensor", t.getSensorValues(sc.Spec.Sensor, scannerAutoSenseConfig))
-	}
+	v.AddChild("sensor", t.getSensorValues(sc.Spec.Sensor, scannerAutoSenseConfig))
 
 	if sc.Spec.AdmissionControl != nil {
 		v.AddChild("admissionControl", t.getAdmissionControlValues(sc.Spec.AdmissionControl))
@@ -177,9 +175,11 @@ func (t Translator) checkInitBundleSecret(ctx context.Context, sc platform.Secur
 func (t Translator) getSensorValues(sensor *platform.SensorComponentSpec, config scanner.AutoSenseResult) *translation.ValuesBuilder {
 	sv := translation.NewValuesBuilder()
 
-	sv.AddChild(translation.ResourcesKey, translation.GetResources(sensor.Resources))
-	sv.SetStringMap("nodeSelector", sensor.NodeSelector)
-	sv.AddAllFrom(translation.GetTolerations(translation.TolerationsKey, sensor.Tolerations))
+	if sensor != nil {
+		sv.AddChild(translation.ResourcesKey, translation.GetResources(sensor.Resources))
+		sv.SetStringMap("nodeSelector", sensor.NodeSelector)
+		sv.AddAllFrom(translation.GetTolerations(translation.TolerationsKey, sensor.Tolerations))
+	}
 
 	if config.EnableLocalImageScanning {
 		sv.SetPathValue("localImageScanning.enabled", strconv.FormatBool(config.EnableLocalImageScanning))
