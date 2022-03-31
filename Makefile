@@ -587,6 +587,8 @@ endif
 	cp bin/linux/upgrader          image/bin/sensor-upgrader
 	cp bin/linux/admission-control image/bin/admission-control
 	cp bin/linux/collection        image/bin/compliance
+	# Workaround to bug in lima: https://github.com/lima-vm/lima/issues/602
+	find image/bin -type f -exec chmod +x {} \;
 
 
 .PHONY: copy-binaries-to-image-dir
