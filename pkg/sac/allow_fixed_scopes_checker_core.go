@@ -52,6 +52,6 @@ func (c allowFixedScopesCheckerCore) SubScopeChecker(key ScopeKey) ScopeCheckerC
 }
 
 func (c allowFixedScopesCheckerCore) EffectiveAccessScope(resource permissions.ResourceWithAccess) (*effectiveaccessscope.ScopeTree, error) {
-	// TODO(ROX-9537): Implement it
-	panic("Implement me: ROX-9537")
+	// TODO(ROX-9536): Implement it
+	panic("Implement me: ROX-9536")
 }

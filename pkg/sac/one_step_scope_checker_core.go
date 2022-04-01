@@ -38,6 +38,6 @@ func (c OneStepSCC) PerformChecks(ctx context.Context) error {
 
 // EffectiveAccessScope fix me.
 func (c OneStepSCC) EffectiveAccessScope(resource permissions.ResourceWithAccess) (*effectiveaccessscope.ScopeTree, error) {
-	// TODO(ROX-9537): Implement it
-	panic("Implement me: ROX-9537")
+	// TODO(ROX-9539): Implement it
+	panic("Implement me: ROX-9539")
 }
