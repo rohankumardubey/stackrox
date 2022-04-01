@@ -7,7 +7,6 @@ import (
 	networkPolicyConversion "github.com/stackrox/rox/pkg/protoconv/networkpolicy"
 	"github.com/stackrox/rox/sensor/common/detector"
 	networkingV1 "k8s.io/api/networking/v1"
-	"k8s.io/apimachinery/pkg/labels"
 )
 
 type networkPolicyStore interface {
@@ -19,16 +18,10 @@ type networkPolicyStore interface {
 	Delete(ID, ns string)
 }
 
-type networkPolicyWrap struct {
-	*storage.NetworkPolicy
-	selector labels.Selector
-}
-
 // networkPolicyDispatcher handles network policy resource events.
 type networkPolicyDispatcher struct {
 	netpolStore     networkPolicyStore
 	deploymentStore *DeploymentStore
-	reconciler      networkPolicyReconciler
 	detector        detector.Detector
 }
 
@@ -36,7 +29,6 @@ func newNetworkPolicyDispatcher(networkPolicyStore networkPolicyStore, deploymen
 	return &networkPolicyDispatcher{
 		netpolStore:     networkPolicyStore,
 		deploymentStore: deploymentStore,
-		reconciler:      newNetworkPolicyReconciler(deploymentStore, networkPolicyStore),
 		detector:        detector,
 	}
 }
@@ -48,43 +40,14 @@ func (h *networkPolicyDispatcher) ProcessEvent(obj, _ interface{}, action centra
 	roxNetpol := networkPolicyConversion.KubernetesNetworkPolicyWrap{NetworkPolicy: np}.ToRoxNetworkPolicy()
 
 	if features.NetworkPolicySystemPolicy.Enabled() {
-
-		//netpolWrap := &networkPolicyWrap{
-		//	NetworkPolicy: roxNetpol,
-		//	selector:      SelectorFromMap(np.Spec.PodSelector.MatchLabels),
-		//}
-
-		var sel selector
-		oldWrap := h.netpolStore.Get(roxNetpol.GetId())
-		if oldWrap != nil {
-			sel = SelectorFromMap(oldWrap.GetSpec().GetPodSelector().GetMatchLabels())
-		}
-
+		sel := h.getSelector(roxNetpol, action)
 		if action == central.ResourceAction_REMOVE_RESOURCE {
 			h.netpolStore.Delete(roxNetpol.GetId(), roxNetpol.GetNamespace())
-			h.updateDeploymentsFromStore(roxNetpol, sel, action)
-			return []*central.SensorEvent{
-				{
-					Id:     string(np.UID),
-					Action: action,
-					Resource: &central.SensorEvent_NetworkPolicy{
-						NetworkPolicy: roxNetpol,
-					},
-				},
-			}
+		} else {
+			h.netpolStore.Upsert(roxNetpol)
 		}
 
-		h.netpolStore.Upsert(roxNetpol)
-		if action == central.ResourceAction_UPDATE_RESOURCE {
-			if sel != nil {
-				sel = or(sel, SelectorFromMap(roxNetpol.GetSpec().GetPodSelector().GetMatchLabels()))
-			} else {
-				sel = SelectorFromMap(roxNetpol.GetSpec().GetPodSelector().GetMatchLabels())
-			}
-		} else if action == central.ResourceAction_CREATE_RESOURCE {
-			sel = SelectorFromMap(roxNetpol.GetSpec().GetPodSelector().GetMatchLabels())
-		}
-		h.updateDeploymentsFromStore(roxNetpol, sel, action)
+		h.updateDeploymentsFromStore(roxNetpol, sel)
 
 		return []*central.SensorEvent{
 			{
@@ -108,9 +71,27 @@ func (h *networkPolicyDispatcher) ProcessEvent(obj, _ interface{}, action centra
 	}
 }
 
-func (h *networkPolicyDispatcher) updateDeploymentsFromStore(np *storage.NetworkPolicy, sel selector, action central.ResourceAction) {
+func (h *networkPolicyDispatcher) getSelector(np *storage.NetworkPolicy, action central.ResourceAction) selector {
+	var sel selector
+	oldWrap := h.netpolStore.Get(np.GetId())
+	if oldWrap != nil {
+		sel = SelectorFromMap(oldWrap.GetSpec().GetPodSelector().GetMatchLabels())
+	}
+
+	if action == central.ResourceAction_UPDATE_RESOURCE {
+		if sel != nil {
+			sel = or(sel, SelectorFromMap(np.GetSpec().GetPodSelector().GetMatchLabels()))
+		} else {
+			sel = SelectorFromMap(np.GetSpec().GetPodSelector().GetMatchLabels())
+		}
+	} else if action == central.ResourceAction_CREATE_RESOURCE {
+		sel = SelectorFromMap(np.GetSpec().GetPodSelector().GetMatchLabels())
+	}
+	return sel
+}
+
+func (h *networkPolicyDispatcher) updateDeploymentsFromStore(np *storage.NetworkPolicy, sel selector) {
 	for _, deploymentWrap := range h.deploymentStore.getMatchingDeployments(np.GetNamespace(), sel) {
-		h.reconciler.UpdateNetworkPolicyForDeployment(deploymentWrap)
 		h.detector.ProcessDeployment(deploymentWrap.GetDeployment(), central.ResourceAction_UPDATE_RESOURCE)
 	}
 }

@@ -26,7 +26,6 @@ type scanResult struct {
 	action     central.ResourceAction
 	deployment *storage.Deployment
 	images     []*storage.Image
-	//networkPolicies []*storage.NetworkPolicy
 }
 
 type imageChanResult struct {
@@ -183,12 +182,6 @@ func (e *enricher) runImageScanAsync(imageChan chan<- imageChanResult, container
 	}()
 }
 
-//func (e *enricher) getNetworkPolicies(deployment *storage.Deployment) *NetworkPolicyAssociation {
-//	ds := resources.DeploymentStoreSingleton()
-//	// TODO: create augmented object
-//	return ds.GetNetworkPolicyInformation(deployment.GetId())
-//}
-
 func (e *enricher) getImages(deployment *storage.Deployment) []*storage.Image {
 	imageChan := make(chan imageChanResult, len(deployment.GetContainers()))
 	for idx, container := range deployment.GetContainers() {
@@ -219,7 +212,6 @@ func (e *enricher) blockingScan(deployment *storage.Deployment, action central.R
 		action:     action,
 		deployment: deployment,
 		images:     e.getImages(deployment),
-		//		networkPolicy: e.getNetworkPolicies(deployment),
 	}:
 	}
 }
