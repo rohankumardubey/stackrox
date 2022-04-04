@@ -163,6 +163,13 @@ spec:
                         type: object
                     type: object
                   resources:
+                    default:
+                      limits:
+                        cpu: 4000m
+                        memory: 8Gi
+                      requests:
+                        cpu: 1500m
+                        memory: 4Gi
                     description: Allows overriding the default resource settings for
                       this component. Please consult the documentation for an overview
                       of default resource requirements and a sizing guide.
@@ -177,9 +184,6 @@ spec:
                         description: 'Limits describes the maximum amount of compute
                           resources allowed. More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/'
                         type: object
-                        default:
-                          memory: "8Gi"
-                          cpu: "4000m"
                       requests:
                         additionalProperties:
                           anyOf:
@@ -192,9 +196,6 @@ spec:
                           it defaults to Limits if that is explicitly specified, otherwise
                           to an implementation-defined value. More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/'
                         type: object
-                        default:
-                          memory: "4Gi"
-                          cpu: "1500m"
                     type: object
                   tolerations:
                     description: If you want this component to only run on specific
@@ -416,6 +417,13 @@ spec:
                           nodes, you can configure a node selector here.
                         type: object
                       resources:
+                        default:
+                          limits:
+                            cpu: 4000m
+                            memory: 8Gi
+                          requests:
+                            cpu: 1500m
+                            memory: 4Gi
                         description: Allows overriding the default resource settings
                           for this component. Please consult the documentation for
                           an overview of default resource requirements and a sizing
@@ -532,6 +540,13 @@ spec:
                           nodes, you can configure a node selector here.
                         type: object
                       resources:
+                        default:
+                          limits:
+                            cpu: 4000m
+                            memory: 8Gi
+                          requests:
+                            cpu: 1500m
+                            memory: 4Gi
                         description: Allows overriding the default resource settings
                           for this component. Please consult the documentation for
                           an overview of default resource requirements and a sizing

@@ -84,6 +84,13 @@ spec:
                       nodes, you can configure a node selector here.
                     type: object
                   resources:
+                    default:
+                      limits:
+                        cpu: 4000m
+                        memory: 8Gi
+                      requests:
+                        cpu: 1500m
+                        memory: 4Gi
                     description: Allows overriding the default resource settings for
                       this component. Please consult the documentation for an overview
                       of default resource requirements and a sizing guide.
@@ -477,6 +484,13 @@ spec:
                           nodes, you can configure a node selector here.
                         type: object
                       resources:
+                        default:
+                          limits:
+                            cpu: 4000m
+                            memory: 8Gi
+                          requests:
+                            cpu: 1500m
+                            memory: 4Gi
                         description: Allows overriding the default resource settings
                           for this component. Please consult the documentation for
                           an overview of default resource requirements and a sizing
@@ -593,6 +607,13 @@ spec:
                           nodes, you can configure a node selector here.
                         type: object
                       resources:
+                        default:
+                          limits:
+                            cpu: 4000m
+                            memory: 8Gi
+                          requests:
+                            cpu: 1500m
+                            memory: 4Gi
                         description: Allows overriding the default resource settings
                           for this component. Please consult the documentation for
                           an overview of default resource requirements and a sizing
@@ -687,6 +708,13 @@ spec:
                       nodes, you can configure a node selector here.
                     type: object
                   resources:
+                    default:
+                      limits:
+                        cpu: 4000m
+                        memory: 8Gi
+                      requests:
+                        cpu: 1500m
+                        memory: 4Gi
                     description: Allows overriding the default resource settings for
                       this component. Please consult the documentation for an overview
                       of default resource requirements and a sizing guide.
