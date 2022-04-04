@@ -76,11 +76,9 @@ preamble() {
     fi
 
     if is_OPENSHIFT_CI; then
-        echo "Some hacks for OSCI that may be removed when tests run with bin"
-
-        gsutil cp "gs://sr-roxc/$(make --quiet tag)/bin/linux/roxctl" "$TEST_ROOT/$TEST_HOST_OS/roxctl"
-        chmod +x "$TEST_ROOT/$TEST_HOST_OS/roxctl"
-        roxctl version
+        info "Some hacks for OSCI that may be removed when tests run with bin"
+        # once the build is integrated with OSCI these can come from earlier bin/image steps
+        make cli-linux upgrader
     fi
 
     require_executable "$TEST_ROOT/bin/$TEST_HOST_OS/roxctl"
