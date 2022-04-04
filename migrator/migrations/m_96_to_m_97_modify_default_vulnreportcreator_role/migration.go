@@ -3,14 +3,14 @@ package m96tom97
 import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/pkg/errors"
-	"github.com/stackrox/rox/central/role"
-	"github.com/stackrox/rox/central/role/resources"
 	"github.com/stackrox/rox/generated/storage"
 	"github.com/stackrox/rox/migrator/migrations"
 	"github.com/stackrox/rox/migrator/migrations/rocksdbmigration"
 	"github.com/stackrox/rox/migrator/types"
 	"github.com/stackrox/rox/pkg/auth/permissions"
 	permissionsUtils "github.com/stackrox/rox/pkg/auth/permissions/utils"
+	"github.com/stackrox/rox/pkg/auth/role"
+	"github.com/stackrox/rox/pkg/auth/role/resources"
 	"github.com/tecbot/gorocksdb"
 )
 
@@ -69,7 +69,7 @@ func getPermissionSet(db *gorocksdb.DB) (*storage.PermissionSet, error) {
 func updateDefaultPermissionsForVulnCreatorRole(db *gorocksdb.DB) error {
 	ps, err := getPermissionSet(db)
 	if ps == nil {
-		return errors.Wrapf(err, "failed to update permissions")
+		return errors.Wrap(err, "failed to update permissions")
 	}
 
 	ps.ResourceToAccess = permissionsUtils.FromResourcesWithAccess(newPermissions...)
