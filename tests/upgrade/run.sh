@@ -91,7 +91,7 @@ preamble() {
         fi
         (cd "$REPO_FOR_TIME_TRAVEL" && git checkout master && git reset --hard && git pull)
     else
-        (cd "$(dirname "$REPO_FOR_TIME_TRAVEL")" && git clone git@github.com:stackrox/stackrox.git "$(basename "$REPO_FOR_TIME_TRAVEL")")
+        (cd "$(dirname "$REPO_FOR_TIME_TRAVEL")" && git clone https://github.com/stackrox/stackrox.git "$(basename "$REPO_FOR_TIME_TRAVEL")")
     fi
 
     if is_CI; then
