@@ -426,6 +426,12 @@ validate_upgrade() {
 
     info "Validating the upgrade with upgrade tests: $stage"
 
+    info "HOME ${HOME:-}"
+    info "GRADLE_USER_HOME ${GRADLE_USER_HOME:-}"
+
+    export HOME="/alabama"
+    export GRADLE_USER_HOME="/alabama"
+
     CLUSTER="$CLUSTER_TYPE_FOR_TEST" \
         UPGRADE_CLUSTER_ID="$upgrade_cluster_id" \
         POLICIES_JSON_RELATIVE_PATH="$policies_dir" \
