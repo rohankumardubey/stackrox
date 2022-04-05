@@ -260,6 +260,8 @@ teardown_gke_cluster() {
     "$SCRIPTS_ROOT/scripts/ci/cleanup-deployment.sh" || true
 
     gcloud container clusters delete "$CLUSTER_NAME" --async
+
+    info "teardown initiated"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
