@@ -5,7 +5,7 @@ go 1.17
 require (
 	github.com/golangci/golangci-lint v1.45.2
 	github.com/nilslice/protolock v0.15.2
-	honnef.co/go/tools v0.3.0
+	honnef.co/go/tools v0.3.1
 )
 
 require (
